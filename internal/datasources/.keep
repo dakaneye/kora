@@ -1,0 +1,2 @@
+# Package datasources provides implementations for fetching data from external services.
+# See specs/efas/0003-datasource-interface.md for ground truth.

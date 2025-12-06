@@ -1,0 +1,2 @@
+# Integration tests requiring auth setup.
+# Use //go:build integration tag and run with: make test-integration

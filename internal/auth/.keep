@@ -1,0 +1,2 @@
+# Package auth provides authentication abstractions for external services.
+# See specs/efas/0002-auth-provider.md for ground truth.
