@@ -61,7 +61,24 @@ All EFAs MUST be authored collaboratively using:
 
 See `specs/efas/AUTHORING.md` for complete guidelines.
 
+## Core Concepts
+
+Reference these concepts from `~/.claude/concepts/` as needed:
+
+| Concept | Path | When to Apply |
+|---------|------|---------------|
+| Radical Candor | `~/.claude/concepts/truth/principal0.md` | Always - absolute truthfulness, no simulated functionality |
+| Truth-Focused | `~/.claude/concepts/truth/truth-focused.md` | Feedback, reviews - direct, fact-driven communication |
+| Hermeneutic Circle | `~/.claude/concepts/circle.md` | Complex problems - understand parts through whole, whole through parts |
+| Planning | `~/.claude/concepts/planning.md` | Feature breakdown, implementation sequencing |
+| Code Review | `~/.claude/concepts/code-review.md` | PR reviews, architecture decisions |
+| Refactoring | `~/.claude/concepts/refactoring.md` | Code improvement without behavior change |
+
+**Truth principles apply universally**: Never simulate functionality, never create illusions of working code, fail by telling the truth.
+
 ## Recommended Agents
+
+Prefer using the appropriate agent for specialized tasks. Agents run in independent contexts with domain expertise.
 
 | Task | Agent | When to Use |
 |------|-------|-------------|
@@ -131,13 +148,20 @@ tests/integration/  # Auth integration tests
 
 ## Commands Reference
 
-| Command | Purpose |
-|---------|---------|
-| `/specify` | Plan new features with deep analysis |
-| `/punchlist` | Execute ordered task lists |
-| `/refactor` | Improve code structure |
-| `/create-pr` | Generate PR summaries |
-| `/review-code` | Comprehensive code review |
+**Prefer using `~/.claude/commands/*` for common workflows.** Commands are thin wrappers that invoke the right agents and concepts with proper configuration.
+
+| Command | Purpose | When to Use |
+|---------|---------|-------------|
+| `/specify` | Plan new features with deep analysis | Starting a new feature, unclear requirements |
+| `/punchlist` | Execute ordered task lists | Multi-step implementations, iterative work |
+| `/refactor` | Improve code structure | Code cleanup without behavior change |
+| `/create-pr` | Generate PR summaries | Before merging, PR descriptions |
+| `/review-code` | Comprehensive code review | PR reviews, architecture decisions |
+| `/hermeneutic` | Apply hermeneutic circle analysis | Complex problems requiring contextual understanding |
+| `/migrate` | Plan technology stack migrations | Moving to new tools/frameworks |
+| `/fix-gas` | Fix GitHub Advanced Security alerts | Security vulnerability remediation |
+
+See `~/.claude/commands/README.md` for full command documentation.
 
 ## Implementation Priorities
 

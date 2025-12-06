@@ -12,23 +12,23 @@
 
 | Priority | Datasource | Document | Why This Order |
 |----------|------------|----------|----------------|
-| 1 | GitHub PRs | `github-prs.md` | Review requests block others; highest urgency |
-| 2 | GitHub Issues | `github-issues.md` | Direct mentions need response |
-| 3 | Slack | `slack.md` | DMs and mentions may be urgent |
-| 4 | Gmail | `email.md` | Work email requiring attention |
-| 5 | Git Changelog | `git-changelog.md` | Context on overnight changes |
-| 6 | Hooks | `hooks.md` | Optional: track Claude work sessions |
+| 1 | GitHub PRs | `./research/github-prs.md` | Review requests block others; highest urgency |
+| 2 | GitHub Issues | `./research/github-issues.md` | Direct mentions need response |
+| 3 | Slack | `./research/slack.md` | DMs and mentions may be urgent |
+| 4 | Gmail | `./research/email.md` | Work email requiring attention |
+| 5 | Git Changelog | `./research/git-changelog.md` | Context on overnight changes |
+| 6 | Hooks | `./research/hooks.md` | Optional: track Claude work sessions |
 
 ## Datasource Documents
 
 | Document | Description |
 |----------|-------------|
-| `github-prs.md` | GitHub Pull Request review requests, mentions, and reviews |
-| `github-issues.md` | GitHub Issue mentions and assignments |
-| `slack.md` | Slack DMs and @mentions via User Token |
-| `email.md` | Gmail unread/important emails via OAuth |
-| `git-changelog.md` | Multi-repo commit aggregation |
-| `hooks.md` | Claude Code accomplishment tracking for quarterly reviews |
+| `./research/github-prs.md` | GitHub Pull Request review requests, mentions, and reviews |
+| `./research/github-issues.md` | GitHub Issue mentions and assignments |
+| `./research/slack.md` | Slack DMs and @mentions via User Token |
+| `./research/email.md` | Gmail unread/important emails via OAuth |
+| `./research/git-changelog.md` | Multi-repo commit aggregation |
+| `./research/hooks.md` | Claude Code accomplishment tracking for quarterly reviews |
 
 ## Authentication Summary
 
