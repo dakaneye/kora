@@ -34,7 +34,7 @@ func NewJSON(level slog.Level) *Logger {
 // Redact replaces sensitive values with a redacted placeholder.
 // Use this for any credential or token values.
 func Redact(value string) string {
-	if len(value) == 0 {
+	if value == "" {
 		return "[EMPTY]"
 	}
 	return "[REDACTED]"

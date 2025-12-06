@@ -10,6 +10,8 @@ import "time"
 // Event represents a single work item from any datasource.
 // EFA 0001: All fields are protected. Do not add/remove without EFA update.
 // IT IS FORBIDDEN TO CHANGE THIS STRUCTURE without updating EFA 0001.
+//
+//nolint:govet // Field order matches EFA 0001 specification, not optimized for alignment
 type Event struct {
 	// Type classifies the event. Must be one of the EventType constants.
 	Type EventType `json:"type"`

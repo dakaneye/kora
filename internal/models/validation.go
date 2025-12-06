@@ -38,7 +38,7 @@ var allowedMetadataKeys = map[Source]map[string]struct{}{
 //  6. Timestamp must not be zero
 //  7. Priority must be 1-5 inclusive
 //  8. Metadata keys must be from the allowed set for the Source
-func (e Event) Validate() error {
+func (e *Event) Validate() error {
 	var errs []string
 
 	if !e.Type.IsValid() {
@@ -73,7 +73,7 @@ func (e Event) Validate() error {
 }
 
 // validateURL checks that the URL is empty or a valid absolute URL.
-func (e Event) validateURL() error {
+func (e *Event) validateURL() error {
 	if e.URL == "" {
 		return nil
 	}
@@ -91,7 +91,7 @@ func (e Event) validateURL() error {
 }
 
 // validateMetadataKeys ensures all metadata keys are in the allowed set for the source.
-func (e Event) validateMetadataKeys() error {
+func (e *Event) validateMetadataKeys() error {
 	if len(e.Metadata) == 0 {
 		return nil
 	}

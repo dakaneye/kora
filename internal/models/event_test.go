@@ -7,6 +7,7 @@ import (
 )
 
 func TestEvent_Validate(t *testing.T) {
+	//nolint:govet // test struct field order prioritizes readability
 	tests := []struct {
 		name    string
 		event   Event

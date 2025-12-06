@@ -10,7 +10,7 @@ import (
 
 // AssertValidEvent verifies that the given event passes validation.
 // It calls t.Helper() to report errors at the caller's location.
-func AssertValidEvent(t testing.TB, e models.Event) {
+func AssertValidEvent(t testing.TB, e *models.Event) {
 	t.Helper()
 	if err := e.Validate(); err != nil {
 		t.Errorf("invalid event: %v", err)
@@ -19,7 +19,7 @@ func AssertValidEvent(t testing.TB, e models.Event) {
 
 // AssertMetadataKeys checks that all metadata keys in the event are in the allowed set.
 // It calls t.Helper() to report errors at the caller's location.
-func AssertMetadataKeys(t testing.TB, e models.Event, allowed []string) {
+func AssertMetadataKeys(t testing.TB, e *models.Event, allowed []string) {
 	t.Helper()
 	allowedSet := make(map[string]bool)
 	for _, k := range allowed {
