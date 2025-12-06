@@ -100,7 +100,7 @@ func (c *GitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint str
 	defer cancel()
 
 	cmdArgs := append([]string{"api", endpoint}, args...)
-	//nolint:gosec // G204: ghPath is from constructor, not user input
+	// #nosec G204 -- ghPath is from constructor, not user input
 	cmd := exec.CommandContext(ctx, c.ghPath, cmdArgs...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -151,7 +151,7 @@ func (p *GitHubAuthProvider) Authenticate(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, authTimeout)
 	defer cancel()
 
-	//nolint:gosec // G204: ghPath is from constructor, not user input
+	// #nosec G204 -- ghPath is from constructor, not user input
 	cmd := exec.CommandContext(ctx, p.ghPath, "auth", "status")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("github auth: %w", auth.ErrGHCLINotAuthenticated)
@@ -193,7 +193,7 @@ func (p *GitHubAuthProvider) runGH(ctx context.Context, args ...string) (string,
 	ctx, cancel := context.WithTimeout(ctx, authTimeout)
 	defer cancel()
 
-	//nolint:gosec // G204: ghPath is from constructor, not user input
+	// #nosec G204 -- ghPath is from constructor, not user input
 	cmd := exec.CommandContext(ctx, p.ghPath, args...)
 	out, err := cmd.Output()
 	if err != nil {

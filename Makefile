@@ -41,13 +41,20 @@ test-coverage:
 	go tool cover -func=coverage.out
 	@echo "Coverage report: coverage.out"
 
-## lint: Run golangci-lint
+## lint: Run golangci-lint and gosec
 lint:
 	@echo "Running linter..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run ./...; \
 	else \
 		echo "golangci-lint not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+		exit 1; \
+	fi
+	@echo "Running security scan..."
+	@if command -v gosec >/dev/null 2>&1; then \
+		gosec -quiet ./...; \
+	else \
+		echo "gosec not installed. Install with: go install github.com/securego/gosec/v2/cmd/gosec@latest"; \
 		exit 1; \
 	fi
 

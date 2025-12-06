@@ -52,7 +52,7 @@ func (k *MacOSKeychain) Get(ctx context.Context, key string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, keychainTimeout)
 	defer cancel()
 
-	//nolint:gosec // G204: securityPath is controlled, key is validated via allowlist
+	// #nosec G204 -- securityPath is controlled, key is validated via allowlist
 	cmd := exec.CommandContext(ctx, k.securityPath,
 		"find-generic-password",
 		"-s", keychainServiceName,
@@ -82,11 +82,11 @@ func (k *MacOSKeychain) Set(ctx context.Context, key, value string) error {
 
 	// Delete existing entry first (ignore errors - it may not exist)
 	//nolint:errcheck // intentionally ignoring error - entry may not exist
-	k.Delete(ctx, key)
+	_ = k.Delete(ctx, key) // #nosec G104
 
 	// SECURITY: Create the entry, passing password via stdin.
 	// The -w flag without a value tells security to read from stdin.
-	//nolint:gosec // G204: securityPath is controlled, key is validated via allowlist
+	// #nosec G204 -- securityPath is controlled, key is validated via allowlist
 	cmd := exec.CommandContext(ctx, k.securityPath,
 		"add-generic-password",
 		"-s", keychainServiceName,
@@ -127,7 +127,7 @@ func (k *MacOSKeychain) Delete(ctx context.Context, key string) error {
 	ctx, cancel := context.WithTimeout(ctx, keychainTimeout)
 	defer cancel()
 
-	//nolint:gosec // G204: securityPath is controlled, key is validated via allowlist
+	// #nosec G204 -- securityPath is controlled, key is validated via allowlist
 	cmd := exec.CommandContext(ctx, k.securityPath,
 		"delete-generic-password",
 		"-s", keychainServiceName,
