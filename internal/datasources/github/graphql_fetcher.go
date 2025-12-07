@@ -348,3 +348,142 @@ func fetchIssueFullContext(ctx context.Context, client *GraphQLClient, owner, re
 
 	return ParseIssueResponse(data, owner+"/"+repo)
 }
+
+// fetchAuthoredPRsGraphQL fetches PRs authored by the current user using GraphQL.
+// Query: author:LOGIN is:open type:pr updated:>=DATE
+//
+// Per EFA 0001:
+//   - EventType: models.EventTypePRAuthor
+//   - Priority: PriorityCritical (1) for CI failing
+//   - Priority: PriorityHigh (2) for changes requested
+//   - Priority: PriorityMedium (3) for pending/approved
+//   - RequiresAction: true when CI failing or changes requested
+//
+// Per EFA 0003: Context must be used for all network operations.
+func (d *DataSource) fetchAuthoredPRsGraphQL(ctx context.Context, client *GraphQLClient, cred githubCredential, since time.Time, orgs []string) ([]models.Event, error) {
+	// Get current user login
+	currentUser, err := d.getCurrentUser(ctx, cred)
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	// Build search query for authored PRs
+	query := fmt.Sprintf("author:%s is:open type:pr updated:>=%s", currentUser, since.Format("2006-01-02"))
+
+	if len(orgs) > 0 {
+		query += " " + buildOrgFilter(orgs)
+	}
+
+	// Search for matching PRs
+	items, err := searchPRs(ctx, client, query, 100)
+	if err != nil {
+		return nil, fmt.Errorf("search authored prs: %w", err)
+	}
+
+	// Fetch full context for each PR
+	events := make([]models.Event, 0, len(items))
+	for _, item := range items {
+		// Check context cancellation between items
+		select {
+		case <-ctx.Done():
+			return events, ctx.Err()
+		default:
+		}
+
+		// Skip items that are before the since time
+		if !item.UpdatedAt.After(since) {
+			continue
+		}
+
+		// Fetch full PR context
+		metadata, err := fetchPRFullContext(ctx, client, item.Owner, item.Repo, item.Number)
+		if err != nil {
+			// Log but continue with partial data
+			metadata = map[string]any{
+				"repo":               item.Owner + "/" + item.Repo,
+				"number":             item.Number,
+				"state":              "open",
+				"author_login":       item.Author,
+				"user_relationships": []string{"author"},
+			}
+		} else {
+			metadata["user_relationships"] = []string{"author"}
+		}
+
+		// Calculate priority based on CI status and reviews per EFA 0001
+		priority, requiresAction, titlePrefix := calculatePRAuthorPriority(metadata)
+
+		event := models.Event{
+			Type:   models.EventTypePRAuthor,
+			Title:  truncateTitle(fmt.Sprintf("%s%s", titlePrefix, item.Title)),
+			Source: models.SourceGitHub,
+			URL:    item.URL,
+			Author: models.Person{
+				Name:     item.Author,
+				Username: item.Author,
+			},
+			Timestamp:      item.UpdatedAt,
+			Priority:       priority,
+			RequiresAction: requiresAction,
+			Metadata:       metadata,
+		}
+		events = append(events, event)
+	}
+
+	return events, nil
+}
+
+// calculatePRAuthorPriority determines priority and title prefix for authored PRs.
+// Per EFA 0001 Priority Assignment Rules:
+//   - CI failing: Priority 1 (Critical), RequiresAction=true, "CI failing: "
+//   - Changes requested: Priority 2 (High), RequiresAction=true, "Changes requested: "
+//   - No reviews (awaiting): Priority 3 (Medium), RequiresAction=false, "Awaiting review: "
+//   - Has approvals: Priority 3 (Medium), RequiresAction=false, "Ready to merge: "
+//   - Default (pending): Priority 3 (Medium), RequiresAction=false, "Your PR: "
+//
+//nolint:errcheck // type assertions intentionally ignore ok bool for graceful handling
+func calculatePRAuthorPriority(metadata map[string]any) (priority models.Priority, requiresAction bool, titlePrefix string) {
+	// Check CI status first (highest priority factor)
+	ciRollup, _ := metadata["ci_rollup"].(string)
+	if ciRollup == "failure" || ciRollup == "error" {
+		return models.PriorityCritical, true, "CI failing: "
+	}
+
+	// Check reviews for changes_requested or approvals
+	reviews, reviewsOK := metadata["reviews"].([]map[string]any)
+	if reviewsOK && len(reviews) > 0 {
+		hasApproval := false
+		hasChangesRequested := false
+
+		for _, review := range reviews {
+			state, _ := review["state"].(string)
+			switch state {
+			case "approved":
+				hasApproval = true
+			case "changes_requested":
+				hasChangesRequested = true
+			}
+		}
+
+		// Changes requested takes priority over approvals
+		if hasChangesRequested {
+			return models.PriorityHigh, true, "Changes requested: "
+		}
+
+		if hasApproval {
+			return models.PriorityMedium, false, "Ready to merge: "
+		}
+	}
+
+	// Check if any reviews exist at all
+	reviewRequests, reqOK := metadata["review_requests"].([]map[string]any)
+	if !reviewsOK || len(reviews) == 0 {
+		// No reviews yet - check if review is requested
+		if reqOK && len(reviewRequests) > 0 {
+			return models.PriorityMedium, false, "Awaiting review: "
+		}
+	}
+
+	// Default: pending state
+	return models.PriorityMedium, false, "Your PR: "
+}

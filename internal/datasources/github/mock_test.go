@@ -90,7 +90,19 @@ func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint
 		return m.handleGraphQL(args)
 	}
 
-	// Handle direct REST endpoint (e.g., "user", "repos/owner/repo/contents/path")
+	// Handle "user" endpoint for current user lookup (used by authored PRs)
+	if endpoint == "user" {
+		if resp, ok := m.responses["rest:user"]; ok {
+			if resp.err != nil {
+				return nil, resp.err
+			}
+			return resp.data, nil
+		}
+		// Default: return a mock user response
+		return []byte(`{"login": "testuser"}`), nil
+	}
+
+	// Handle direct REST endpoint (e.g., "repos/owner/repo/contents/path")
 	// Check for direct endpoint match first
 	if resp, ok := m.responses["rest:"+endpoint]; ok {
 		if resp.err != nil {
@@ -220,6 +232,8 @@ func determineSearchKey(varsStr string) string {
 		return "graphql:search:issue-mention"
 	case contains(varsStr, "assignee"):
 		return "graphql:search:issue-assigned"
+	case contains(varsStr, "author:"):
+		return "graphql:search:pr-author"
 	default:
 		return "graphql:search:default"
 	}

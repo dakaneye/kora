@@ -26,7 +26,7 @@ func loadGraphQLTestData(t *testing.T, filename string) []byte {
 	return wrapGraphQLResponse(data)
 }
 
-// setupMockForAllSearches configures the mock for all 4 GraphQL searches.
+// setupMockForAllSearches configures the mock for all 5 GraphQL searches.
 // This is the common setup for most tests.
 func setupMockForAllSearches(cred *mockGitHubDelegatedCredential, t *testing.T) {
 	// Load search responses
@@ -43,6 +43,7 @@ func setupMockForAllSearches(cred *mockGitHubDelegatedCredential, t *testing.T) 
 	cred.setGraphQLResponse("graphql:search:pr-mention", emptySearchResp)
 	cred.setGraphQLResponse("graphql:search:issue-mention", issueSearchResp)
 	cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
+	cred.setGraphQLResponse("graphql:search:pr-author", emptySearchResp) // Authored PRs
 
 	// Configure context responses
 	cred.setGraphQLResponse("graphql:pr:context", prContextResp)
@@ -64,6 +65,7 @@ func setupMockWithPartialFailure(cred *mockGitHubDelegatedCredential, t *testing
 		"graphql:search:pr-mention":     emptySearchResp,
 		"graphql:search:issue-mention":  issueSearchResp,
 		"graphql:search:issue-assigned": emptySearchResp,
+		"graphql:search:pr-author":      emptySearchResp,
 		"graphql:pr:context":            prContextResp,
 		"graphql:issue:context":         issueContextResp,
 	}

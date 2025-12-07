@@ -109,9 +109,9 @@ func TestFetch_AllSearchesSucceed(t *testing.T) {
 		}
 	}
 
-	// Verify statistics (4 search calls - one for each type)
-	if result.Stats.APICallCount != 4 {
-		t.Errorf("expected 4 API calls, got %d", result.Stats.APICallCount)
+	// Verify statistics (5 search calls - one for each type)
+	if result.Stats.APICallCount != 5 {
+		t.Errorf("expected 5 API calls, got %d", result.Stats.APICallCount)
 	}
 	if result.Partial {
 		t.Error("expected Partial=false on full success")
@@ -231,6 +231,7 @@ func TestFetch_Deduplication(t *testing.T) {
 	cred.setGraphQLResponse("graphql:search:pr-mention", prSearchResp) // Same data to create duplicates
 	cred.setGraphQLResponse("graphql:search:issue-mention", emptySearchResp)
 	cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
+	cred.setGraphQLResponse("graphql:search:pr-author", emptySearchResp)
 	cred.setGraphQLResponse("graphql:pr:context", prContextResp)
 
 	ds, err := NewDataSource(authProvider)
@@ -277,6 +278,7 @@ func TestFetch_OrgFilter(t *testing.T) {
 	cred.setGraphQLResponse("graphql:search:pr-mention", emptySearchResp)
 	cred.setGraphQLResponse("graphql:search:issue-mention", emptySearchResp)
 	cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
+	cred.setGraphQLResponse("graphql:search:pr-author", emptySearchResp)
 
 	ds, err := NewDataSource(authProvider, WithOrgs([]string{"example"}))
 	if err != nil {
@@ -349,6 +351,7 @@ func TestTransform_EventTypeAndPriority(t *testing.T) {
 			cred.setGraphQLResponse("graphql:search:pr-mention", emptySearchResp)
 			cred.setGraphQLResponse("graphql:search:issue-mention", emptySearchResp)
 			cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
+			cred.setGraphQLResponse("graphql:search:pr-author", emptySearchResp)
 			cred.setGraphQLResponse("graphql:pr:context", prContextResp)
 			cred.setGraphQLResponse("graphql:issue:context", issueContextResp)
 
@@ -441,6 +444,7 @@ func TestTransform_PRReviewPriorityByRequestType(t *testing.T) {
 			cred.setGraphQLResponse("graphql:search:pr-mention", emptySearchResp)
 			cred.setGraphQLResponse("graphql:search:issue-mention", emptySearchResp)
 			cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
+			cred.setGraphQLResponse("graphql:search:pr-author", emptySearchResp)
 			cred.setGraphQLResponse("graphql:pr:context", prContextResp)
 			cred.setGraphQLResponse("graphql:issue:context", issueContextResp)
 

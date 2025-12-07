@@ -107,13 +107,14 @@ func (d *DataSource) Service() models.Source {
 	return models.SourceGitHub
 }
 
-// Fetch retrieves GitHub events (PR reviews, mentions, issue assignments).
+// Fetch retrieves GitHub events (PR reviews, mentions, issue assignments, authored PRs).
 //
 // This implementation uses GraphQL for rich context. Search strategy:
 //  1. review-requested:@me is:open -draft:true type:pr (highest priority)
 //  2. mentions:@me type:pr (PR mentions)
 //  3. mentions:@me type:issue (issue mentions)
 //  4. assignee:@me is:open type:issue (assigned issues)
+//  5. author:LOGIN is:open type:pr (user's own PRs for status tracking)
 //
 // For each search result, full context is fetched via PRQuery/IssueQuery
 // to populate all EFA 0001 metadata fields.
@@ -215,10 +216,29 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 		result.Stats.APICallCount++
 	}
 
+	if ctx.Err() != nil {
+		result.Events = allEvents
+		result.Errors = fetchErrors
+		result.Partial = len(allEvents) > 0
+		result.Stats.Duration = time.Since(startTime)
+		return result, ctx.Err()
+	}
+
+	// 5. Authored PRs - GraphQL
+	// Track user's own open PRs to show CI failures, review state, etc.
+	authoredPRs, err := d.fetchAuthoredPRsGraphQL(ctx, gqlClient, ghCred, opts.Since, d.orgs)
+	if err != nil {
+		fetchErrors = append(fetchErrors, fmt.Errorf("authored prs: %w", err))
+	} else {
+		allEvents = append(allEvents, authoredPRs...)
+		result.Stats.APICallCount++
+	}
+
 	// Deduplicate by URL (same item can appear in multiple searches)
+	// Also merges user_relationships when same PR appears for multiple reasons
 	allEvents = deduplicateEvents(allEvents)
 
-	// 5. Check CODEOWNERS for PR events (optional)
+	// 6. Check CODEOWNERS for PR events (optional)
 	// Only process if codeownersFetcher is configured
 	if d.codeownersFetcher != nil {
 		currentUser, userErr := d.getCurrentUser(ctx, ghCred)
