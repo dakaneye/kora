@@ -172,7 +172,7 @@ Rich context for PRs to enable Claude to assess relevance without additional que
 | `state` | string | PR state: "open", "closed", "merged" |
 | `author_login` | string | PR author's GitHub username |
 | `assignees` | []string | Assigned usernames |
-| `user_relationships` | []string | Why user sees this: "author", "reviewer", "mentioned", "codeowner", "assignee" |
+| `user_relationships` | []string | Why user sees this: "author", "direct_reviewer", "team_reviewer", "mentioned", "codeowner" |
 | `review_requests` | []map | Review requests: `[{login, type: "user"\|"team", team_slug?}]` |
 | `reviews` | []map | Reviews: `[{author, state: "approved"\|"changes_requested"\|"commented"\|"pending"}]` |
 | `ci_checks` | []map | CI status: `[{name, status: "queued"\|"in_progress"\|"completed", conclusion?}]` |
@@ -369,24 +369,24 @@ func (e Event) validateMetadataKeys() error {
 
 Datasources MUST assign priority according to these rules:
 
-| Condition | Priority | EventType |
-|-----------|----------|-----------|
-| PR author + CI failing | 1 (Critical) | pr_author |
-| PR review requested (direct user) | 2 (High) | pr_review |
-| PR author + changes requested | 2 (High) | pr_author |
-| Direct message / DM | 2 (High) | slack_dm |
-| PR review requested (team) | 3 (Medium) | pr_review |
-| PR author (pending/approved) | 3 (Medium) | pr_author |
-| PR codeowner (not explicit reviewer) | 3 (Medium) | pr_codeowner |
-| @mention in issue/PR/channel | 3 (Medium) | *_mention |
-| Issue assigned | 3 (Medium) | issue_assigned |
-| Thread reply | 4 (Low) | slack_mention |
-| FYI / informational | 5 (Info) | - |
+| Condition | Priority | EventType | user_relationships |
+|-----------|----------|-----------|-------------------|
+| PR author + CI failing | 1 (Critical) | pr_author | author |
+| PR review requested (direct user) | 2 (High) | pr_review | direct_reviewer |
+| PR author + changes requested | 2 (High) | pr_author | author |
+| Direct message / DM | 2 (High) | slack_dm | - |
+| PR review requested (team) | 3 (Medium) | pr_review | team_reviewer |
+| PR author (pending/approved) | 3 (Medium) | pr_author | author |
+| PR codeowner (not explicit reviewer) | 3 (Medium) | pr_codeowner | codeowner |
+| @mention in issue/PR/channel | 3 (Medium) | *_mention | mentioned |
+| Issue assigned | 3 (Medium) | issue_assigned | assignee |
+| Thread reply | 4 (Low) | slack_mention | - |
+| FYI / informational | 5 (Info) | - | - |
 
 **Priority Calculation for PR Author:**
 ```go
 func calculatePRAuthorPriority(ciRollup string, hasChangesRequested bool) Priority {
-    if ciRollup == "failure" {
+    if ciRollup == "failure" || ciRollup == "error" {
         return PriorityCritical // 1 - CI broken, blocks merge
     }
     if hasChangesRequested {
@@ -405,6 +405,25 @@ func calculatePRReviewPriority(reviewRequestType string) Priority {
     return PriorityMedium // 3 - Team request
 }
 ```
+
+### user_relationships Field
+
+The `user_relationships` metadata field indicates why the user is seeing this event. Multiple relationships may exist for the same PR/issue (e.g., both mentioned and a codeowner).
+
+**Valid values:**
+- `"author"` - User created this PR
+- `"direct_reviewer"` - User was directly requested as reviewer
+- `"team_reviewer"` - User's team was requested as reviewer
+- `"mentioned"` - User was @mentioned in body/comments
+- `"codeowner"` - User owns changed files per CODEOWNERS
+- `"assignee"` - User is assigned to this issue
+
+**Deduplication behavior:**
+When the same PR appears in multiple searches (e.g., user is both mentioned and a reviewer), events are deduplicated by URL and relationships are merged. The highest-priority relationship determines the EventType:
+1. `pr_review` (direct_reviewer or team_reviewer present)
+2. `pr_author` (author present)
+3. `pr_codeowner` (codeowner present, not already a reviewer)
+4. `pr_mention` (mentioned present, no higher priority relationship)
 
 ### Example Events
 
@@ -428,7 +447,7 @@ func calculatePRReviewPriority(reviewRequestType string) Priority {
     "state": "open",
     "author_login": "janedev",
     "assignees": ["janedev"],
-    "user_relationships": ["reviewer"],
+    "user_relationships": ["direct_reviewer"],
     "review_requests": [
       {"login": "currentuser", "type": "user"},
       {"login": "ecosystems-team", "type": "team", "team_slug": "org/ecosystems-team"}
@@ -469,7 +488,7 @@ func calculatePRReviewPriority(reviewRequestType string) Priority {
 ```json
 {
   "type": "pr_author",
-  "title": "Your PR: Fix authentication flow",
+  "title": "CI failing: Fix authentication flow",
   "source": "github",
   "url": "https://github.com/org/repo/pull/456",
   "author": {
@@ -498,6 +517,36 @@ func calculatePRReviewPriority(reviewRequestType string) Priority {
     "deletions": 50,
     "unresolved_threads": 2,
     "is_draft": false
+  }
+}
+```
+
+**GitHub PR Codeowner (User owns changed files):**
+```json
+{
+  "type": "pr_codeowner",
+  "title": "You own files in: Refactor storage layer",
+  "source": "github",
+  "url": "https://github.com/org/repo/pull/789",
+  "author": {
+    "name": "Other Developer",
+    "username": "otherdev"
+  },
+  "timestamp": "2025-12-06T09:00:00Z",
+  "priority": 3,
+  "requires_action": true,
+  "metadata": {
+    "repo": "org/repo",
+    "number": 789,
+    "state": "open",
+    "author_login": "otherdev",
+    "user_relationships": ["codeowner"],
+    "files_changed": [
+      {"path": "internal/storage/db.go", "additions": 200, "deletions": 50},
+      {"path": "internal/storage/cache.go", "additions": 100, "deletions": 20}
+    ],
+    "files_changed_count": 2,
+    "ci_rollup": "pending"
   }
 }
 ```
@@ -569,6 +618,7 @@ func calculatePRReviewPriority(reviewRequestType string) Priority {
 - **Explicit types**: No stringly-typed fields that could drift
 - **Metadata escape hatch**: Source-specific data without polluting core fields
 - **Validation built-in**: Catch errors at construction time
+- **Rich context**: All metadata needed for prioritization and display without additional queries
 
 ### Alternatives Considered
 
@@ -588,6 +638,8 @@ Every datasource MUST have tests that verify:
 1. Returned events pass `Validate()`
 2. All metadata keys are in the allowed set
 3. Priority is assigned according to the rules above
+4. user_relationships field is populated correctly
+5. Deduplication merges relationships properly
 
 Test helpers should be provided in `internal/models/testutil/`:
 
@@ -669,7 +721,7 @@ Metadata: map[string]any{
 // STOP - adding keys not in allowedMetadataKeys
 Metadata: map[string]any{
     "custom_field": "value",  // NOT in allowed list
-    "pr_body":      body,     // NOT in allowed list
+    "pr_body":      body,     // Use "body" instead
     "raw_response": resp,     // NEVER store raw API responses
 }
 ```
@@ -707,8 +759,8 @@ Datasources MUST use the priority assignment rules table in this EFA.
 **CORRECT:**
 ```go
 func calculatePriority(item *GitHubItem) Priority {
-    // PR review requested = High (2) per EFA 0001
-    if item.IsReviewRequested {
+    // PR review requested (direct user) = High (2) per EFA 0001
+    if item.IsDirectReviewRequested {
         return PriorityHigh
     }
     // Mention = Medium (3) per EFA 0001
@@ -744,6 +796,31 @@ func truncateTitle(title string) string {
 event.Title = item.FullDescription // May exceed 100 chars
 ```
 
+### Rule 7: user_relationships MUST Be Populated
+
+The `user_relationships` metadata field MUST be populated for all GitHub events to indicate why the user is seeing this event.
+
+**CORRECT:**
+```go
+// For PR review request
+metadata["user_relationships"] = []string{"direct_reviewer"}
+
+// For codeowner without explicit review
+metadata["user_relationships"] = []string{"codeowner"}
+
+// For multiple relationships (deduplicated event)
+metadata["user_relationships"] = []string{"mentioned", "codeowner"}
+```
+
+**FORBIDDEN:**
+```go
+// STOP - missing user_relationships
+metadata := map[string]any{
+    "repo": "org/repo",
+    // Missing: "user_relationships"
+}
+```
+
 ### Stop-and-Ask Triggers
 
 **STOP AND ASK THE USER** before:
@@ -755,6 +832,7 @@ event.Title = item.FullDescription // May exceed 100 chars
 5. Changing validation rules
 6. Changing priority assignment rules
 7. Modifying the Validate() function
+8. Adding new user_relationships values
 
 ### Code Protection Comments
 
@@ -792,6 +870,7 @@ Before creating events:
 - [ ] Timestamp is non-zero UTC time
 - [ ] Priority is 1-5 per assignment rules
 - [ ] Metadata keys are from allowedMetadataKeys for the source
+- [ ] user_relationships is populated for GitHub events
 - [ ] Event passes Validate()
 
 ## Open Questions

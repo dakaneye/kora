@@ -383,1059 +383,90 @@ func (r *RunResult) TotalEvents() int {
 
 ### GitHub DataSource Implementation
 
-```go
-// Package github implements the GitHub datasource using gh CLI delegation.
-// Ground truth defined in specs/efas/0003-datasource-interface.md
-//
-// IT IS FORBIDDEN TO CHANGE the core fetch logic without updating EFA 0003.
-package github
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"sort"
-	"strings"
-	"time"
-
-	"github.com/dakaneye/kora/internal/auth"
-	"github.com/dakaneye/kora/internal/datasources"
-	"github.com/dakaneye/kora/internal/models"
-)
-
-// DataSource fetches events from GitHub via gh CLI delegation.
-//
-// SECURITY: All API calls are delegated to GitHubDelegatedCredential.ExecuteAPI().
-// This datasource NEVER sees or handles GitHub tokens directly.
-type DataSource struct {
-	authProvider auth.AuthProvider
-	credential   *auth.GitHubDelegatedCredential
-	orgs         []string // organizations to search
-}
-
-// DataSourceOption configures the GitHub DataSource.
-type DataSourceOption func(*DataSource)
-
-// WithOrgs limits searches to specific organizations.
-func WithOrgs(orgs []string) DataSourceOption {
-	return func(d *DataSource) {
-		d.orgs = orgs
-	}
-}
-
-// NewDataSource creates a GitHub datasource.
-// The authProvider must return a GitHubDelegatedCredential.
-func NewDataSource(authProvider auth.AuthProvider, opts ...DataSourceOption) (*DataSource, error) {
-	if authProvider.Service() != auth.ServiceGitHub {
-		return nil, fmt.Errorf("github datasource requires github auth provider")
-	}
-
-	d := &DataSource{
-		authProvider: authProvider,
-	}
-	for _, opt := range opts {
-		opt(d)
-	}
-	return d, nil
-}
-
-func (d *DataSource) Name() string           { return "github" }
-func (d *DataSource) Service() models.Source { return models.SourceGitHub }
-
-// Fetch retrieves GitHub events (PR reviews, mentions, issue assignments).
-//
-// Search strategy:
-//  1. review-requested:@me is:open -draft:true (highest priority)
-//  2. author:@me is:open (PRs with activity on your PRs)
-//  3. mentions:@me type:pr (PR mentions)
-//  4. mentions:@me type:issue (issue mentions)
-//  5. assignee:@me is:open (assigned issues)
-//
-// SECURITY: Uses GitHubDelegatedCredential.ExecuteAPI() for all API calls.
-// The GitHub token never leaves gh CLI's control.
-func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (*datasources.FetchResult, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, fmt.Errorf("github fetch: %w", err)
-	}
-
-	// Get credential (validates auth)
-	cred, err := d.authProvider.GetCredential(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("github fetch: %w", datasources.ErrNotAuthenticated)
-	}
-
-	ghCred, ok := cred.(*auth.GitHubDelegatedCredential)
-	if !ok {
-		return nil, fmt.Errorf("github fetch: expected GitHubDelegatedCredential, got %T", cred)
-	}
-
-	result := &datasources.FetchResult{
-		Stats: datasources.FetchStats{},
-	}
-	startTime := time.Now()
-
-	// Execute all searches
-	var allEvents []models.Event
-	var fetchErrors []error
-
-	// 1. PR review requests (highest priority)
-	prReviews, err := d.fetchPRReviewRequests(ctx, ghCred, opts.Since)
-	if err != nil {
-		fetchErrors = append(fetchErrors, fmt.Errorf("pr reviews: %w", err))
-	} else {
-		allEvents = append(allEvents, prReviews...)
-		result.Stats.APICallCount++
-	}
-
-	// 2. PR mentions
-	prMentions, err := d.fetchPRMentions(ctx, ghCred, opts.Since)
-	if err != nil {
-		fetchErrors = append(fetchErrors, fmt.Errorf("pr mentions: %w", err))
-	} else {
-		allEvents = append(allEvents, prMentions...)
-		result.Stats.APICallCount++
-	}
-
-	// 3. Issue mentions
-	issueMentions, err := d.fetchIssueMentions(ctx, ghCred, opts.Since)
-	if err != nil {
-		fetchErrors = append(fetchErrors, fmt.Errorf("issue mentions: %w", err))
-	} else {
-		allEvents = append(allEvents, issueMentions...)
-		result.Stats.APICallCount++
-	}
-
-	// 4. Assigned issues
-	assignedIssues, err := d.fetchAssignedIssues(ctx, ghCred, opts.Since)
-	if err != nil {
-		fetchErrors = append(fetchErrors, fmt.Errorf("assigned issues: %w", err))
-	} else {
-		allEvents = append(allEvents, assignedIssues...)
-		result.Stats.APICallCount++
-	}
-
-	// Deduplicate by URL
-	allEvents = deduplicateEvents(allEvents)
-
-	// Filter by options
-	result.Stats.EventsFetched = len(allEvents)
-	allEvents = filterEvents(allEvents, opts)
-	result.Stats.EventsReturned = len(allEvents)
-
-	// Apply limit
-	if opts.Limit > 0 && len(allEvents) > opts.Limit {
-		allEvents = allEvents[:opts.Limit]
-	}
-
-	// Sort by timestamp
-	sort.Slice(allEvents, func(i, j int) bool {
-		return allEvents[i].Timestamp.Before(allEvents[j].Timestamp)
-	})
-
-	// Validate all events
-	for i, event := range allEvents {
-		if err := event.Validate(); err != nil {
-			fetchErrors = append(fetchErrors, fmt.Errorf("event %d validation: %w", i, err))
-		}
-	}
-
-	result.Events = allEvents
-	result.Errors = fetchErrors
-	result.Partial = len(fetchErrors) > 0 && len(allEvents) > 0
-	result.Stats.Duration = time.Since(startTime)
-
-	return result, nil
-}
-
-// fetchPRReviewRequests fetches PRs where user's review is requested.
-// Query: review-requested:@me is:open -draft:true
-func (d *DataSource) fetchPRReviewRequests(ctx context.Context, cred *auth.GitHubDelegatedCredential, since time.Time) ([]models.Event, error) {
-	query := fmt.Sprintf("review-requested:@me is:open -draft:true updated:>=%s", since.Format("2006-01-02"))
-
-	// Add org filter if configured
-	if len(d.orgs) > 0 {
-		query += " " + buildOrgFilter(d.orgs)
-	}
-
-	out, err := cred.ExecuteAPI(ctx, "search/issues",
-		"-X", "GET",
-		"-f", fmt.Sprintf("q=%s", query),
-		"-f", "per_page=100",
-	)
-	if err != nil {
-		return nil, fmt.Errorf("search pr reviews: %w", err)
-	}
-
-	var searchResult ghSearchResult
-	if err := json.Unmarshal(out, &searchResult); err != nil {
-		return nil, fmt.Errorf("parse pr reviews: %w", err)
-	}
-
-	events := make([]models.Event, 0, len(searchResult.Items))
-	for _, item := range searchResult.Items {
-		if !item.PullRequest.IsSet() {
-			continue // Not a PR
-		}
-
-		event := models.Event{
-			Type:           models.EventTypePRReview,
-			Title:          truncateTitle(fmt.Sprintf("Review requested: %s", item.Title)),
-			Source:         models.SourceGitHub,
-			URL:            item.HTMLURL,
-			Author:         models.Person{Name: item.User.Login, Username: item.User.Login},
-			Timestamp:      item.UpdatedAt,
-			Priority:       models.PriorityHigh, // PR reviews are high priority
-			RequiresAction: true,
-			Metadata: map[string]any{
-				"repo":         item.RepositoryURL,
-				"number":       item.Number,
-				"state":        item.State,
-				"review_state": "pending",
-				"labels":       extractLabels(item.Labels),
-			},
-		}
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-// fetchPRMentions fetches PRs where user is mentioned.
-// Query: mentions:@me type:pr
-func (d *DataSource) fetchPRMentions(ctx context.Context, cred *auth.GitHubDelegatedCredential, since time.Time) ([]models.Event, error) {
-	query := fmt.Sprintf("mentions:@me type:pr updated:>=%s", since.Format("2006-01-02"))
-
-	if len(d.orgs) > 0 {
-		query += " " + buildOrgFilter(d.orgs)
-	}
-
-	out, err := cred.ExecuteAPI(ctx, "search/issues",
-		"-X", "GET",
-		"-f", fmt.Sprintf("q=%s", query),
-		"-f", "per_page=100",
-	)
-	if err != nil {
-		return nil, fmt.Errorf("search pr mentions: %w", err)
-	}
-
-	var searchResult ghSearchResult
-	if err := json.Unmarshal(out, &searchResult); err != nil {
-		return nil, fmt.Errorf("parse pr mentions: %w", err)
-	}
-
-	events := make([]models.Event, 0, len(searchResult.Items))
-	for _, item := range searchResult.Items {
-		event := models.Event{
-			Type:           models.EventTypePRMention,
-			Title:          truncateTitle(fmt.Sprintf("Mentioned in PR: %s", item.Title)),
-			Source:         models.SourceGitHub,
-			URL:            item.HTMLURL,
-			Author:         models.Person{Name: item.User.Login, Username: item.User.Login},
-			Timestamp:      item.UpdatedAt,
-			Priority:       models.PriorityMedium, // Mentions are medium priority
-			RequiresAction: false,                 // May or may not need action
-			Metadata: map[string]any{
-				"repo":   item.RepositoryURL,
-				"number": item.Number,
-				"state":  item.State,
-				"labels": extractLabels(item.Labels),
-			},
-		}
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-// fetchIssueMentions fetches issues where user is mentioned.
-// Query: mentions:@me type:issue
-func (d *DataSource) fetchIssueMentions(ctx context.Context, cred *auth.GitHubDelegatedCredential, since time.Time) ([]models.Event, error) {
-	query := fmt.Sprintf("mentions:@me type:issue updated:>=%s", since.Format("2006-01-02"))
-
-	if len(d.orgs) > 0 {
-		query += " " + buildOrgFilter(d.orgs)
-	}
-
-	out, err := cred.ExecuteAPI(ctx, "search/issues",
-		"-X", "GET",
-		"-f", fmt.Sprintf("q=%s", query),
-		"-f", "per_page=100",
-	)
-	if err != nil {
-		return nil, fmt.Errorf("search issue mentions: %w", err)
-	}
-
-	var searchResult ghSearchResult
-	if err := json.Unmarshal(out, &searchResult); err != nil {
-		return nil, fmt.Errorf("parse issue mentions: %w", err)
-	}
-
-	events := make([]models.Event, 0, len(searchResult.Items))
-	for _, item := range searchResult.Items {
-		if item.PullRequest.IsSet() {
-			continue // Skip PRs in issue search
-		}
-
-		event := models.Event{
-			Type:           models.EventTypeIssueMention,
-			Title:          truncateTitle(fmt.Sprintf("Mentioned in issue: %s", item.Title)),
-			Source:         models.SourceGitHub,
-			URL:            item.HTMLURL,
-			Author:         models.Person{Name: item.User.Login, Username: item.User.Login},
-			Timestamp:      item.UpdatedAt,
-			Priority:       models.PriorityMedium,
-			RequiresAction: false,
-			Metadata: map[string]any{
-				"repo":   item.RepositoryURL,
-				"number": item.Number,
-				"state":  item.State,
-				"labels": extractLabels(item.Labels),
-			},
-		}
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-// fetchAssignedIssues fetches issues assigned to the user.
-// Query: assignee:@me is:open
-func (d *DataSource) fetchAssignedIssues(ctx context.Context, cred *auth.GitHubDelegatedCredential, since time.Time) ([]models.Event, error) {
-	query := fmt.Sprintf("assignee:@me is:open type:issue updated:>=%s", since.Format("2006-01-02"))
-
-	if len(d.orgs) > 0 {
-		query += " " + buildOrgFilter(d.orgs)
-	}
-
-	out, err := cred.ExecuteAPI(ctx, "search/issues",
-		"-X", "GET",
-		"-f", fmt.Sprintf("q=%s", query),
-		"-f", "per_page=100",
-	)
-	if err != nil {
-		return nil, fmt.Errorf("search assigned issues: %w", err)
-	}
-
-	var searchResult ghSearchResult
-	if err := json.Unmarshal(out, &searchResult); err != nil {
-		return nil, fmt.Errorf("parse assigned issues: %w", err)
-	}
-
-	events := make([]models.Event, 0, len(searchResult.Items))
-	for _, item := range searchResult.Items {
-		event := models.Event{
-			Type:           models.EventTypeIssueAssigned,
-			Title:          truncateTitle(fmt.Sprintf("Assigned: %s", item.Title)),
-			Source:         models.SourceGitHub,
-			URL:            item.HTMLURL,
-			Author:         models.Person{Name: item.User.Login, Username: item.User.Login},
-			Timestamp:      item.UpdatedAt,
-			Priority:       models.PriorityMedium,
-			RequiresAction: true,
-			Metadata: map[string]any{
-				"repo":   item.RepositoryURL,
-				"number": item.Number,
-				"state":  item.State,
-				"labels": extractLabels(item.Labels),
-			},
-		}
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-// GitHub API response types
-type ghSearchResult struct {
-	TotalCount int      `json:"total_count"`
-	Items      []ghItem `json:"items"`
-}
-
-type ghItem struct {
-	Number        int        `json:"number"`
-	Title         string     `json:"title"`
-	State         string     `json:"state"`
-	HTMLURL       string     `json:"html_url"`
-	RepositoryURL string     `json:"repository_url"`
-	User          ghUser     `json:"user"`
-	Labels        []ghLabel  `json:"labels"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	PullRequest   ghPR       `json:"pull_request"`
-}
-
-type ghUser struct {
-	Login string `json:"login"`
-}
-
-type ghLabel struct {
-	Name string `json:"name"`
-}
-
-type ghPR struct {
-	URL string `json:"url"`
-}
-
-func (pr ghPR) IsSet() bool {
-	return pr.URL != ""
-}
-
-// Helper functions
-
-func buildOrgFilter(orgs []string) string {
-	if len(orgs) == 0 {
-		return ""
-	}
-	var parts []string
-	for _, org := range orgs {
-		parts = append(parts, fmt.Sprintf("org:%s", org))
-	}
-	return strings.Join(parts, " ")
-}
-
-func truncateTitle(title string) string {
-	if len(title) <= 100 {
-		return title
-	}
-	return title[:97] + "..."
-}
-
-func extractLabels(labels []ghLabel) []string {
-	result := make([]string, len(labels))
-	for i, l := range labels {
-		result[i] = l.Name
-	}
-	return result
-}
-
-func deduplicateEvents(events []models.Event) []models.Event {
-	seen := make(map[string]bool)
-	result := make([]models.Event, 0, len(events))
-	for _, e := range events {
-		if !seen[e.URL] {
-			seen[e.URL] = true
-			result = append(result, e)
-		}
-	}
-	return result
-}
-
-func filterEvents(events []models.Event, opts datasources.FetchOptions) []models.Event {
-	if opts.Filter == nil {
-		return events
-	}
-
-	result := make([]models.Event, 0, len(events))
-	for _, e := range events {
-		// Filter by event types
-		if len(opts.Filter.EventTypes) > 0 {
-			found := false
-			for _, t := range opts.Filter.EventTypes {
-				if e.Type == t {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
-		}
-
-		// Filter by priority
-		if opts.Filter.MinPriority > 0 && e.Priority > opts.Filter.MinPriority {
-			continue
-		}
-
-		// Filter by requires action
-		if opts.Filter.RequiresAction && !e.RequiresAction {
-			continue
-		}
-
-		result = append(result, e)
-	}
-	return result
-}
-```
-
-### Slack DataSource Implementation
+The GitHub datasource uses a two-phase GraphQL approach for rich context:
+
+#### Phase 1: Search for Items
+Uses GitHub search queries to discover relevant PRs and issues:
+1. `review-requested:@me is:open -draft:true type:pr` - Review requests (highest priority)
+2. `mentions:@me type:pr` - PR mentions
+3. `mentions:@me type:issue` - Issue mentions
+4. `assignee:@me is:open type:issue` - Assigned issues
+5. `author:@me is:open type:pr` - User's own PRs (for status tracking)
+
+Search queries use `SearchPRsQuery` and `SearchIssuesQuery` GraphQL operations which return basic info (number, title, URL, updatedAt, repository, author).
+
+#### Phase 2: Fetch Full Context
+For each search result, fetch complete metadata using `PRQuery` or `IssueQuery` GraphQL operations. These queries fetch all EFA 0001 metadata fields in a single request:
+
+**PR Context includes:**
+- Review requests (user vs team, with team slugs)
+- Reviews (author, state: approved/changes_requested/commented)
+- CI checks (name, status, conclusion) and rollup state
+- Files changed (path, additions, deletions)
+- Labels, milestone, linked issues
+- Comments counts, unresolved threads
+- Draft status, mergeability
+- Branch names (head_ref, base_ref)
+- Timestamps (created_at, updated_at)
+
+**Issue Context includes:**
+- Assignees
+- Labels, milestone
+- Comments (recent 10 with author, body, created_at)
+- Linked PRs (via cross-references)
+- Reactions (counts by type)
+- Timeline summary (assigned, labeled, mentioned events)
+- Timestamps
+
+#### CODEOWNERS Integration
+After fetching events, the GitHub datasource optionally checks CODEOWNERS:
+
+1. **Get current user login** via `gh api user` (cached)
+2. **For each PR event**, check if user is a codeowner:
+   - Fetch CODEOWNERS file for the repository
+   - Check each changed file path against CODEOWNERS patterns
+   - Match user login or team membership
+3. **Create EventTypePRCodeowner** if:
+   - User owns changed files
+   - User is NOT already an explicit reviewer
+   - User has NOT already reviewed the PR
+
+This prevents duplicate events for PRs where the user is both a codeowner and an explicit reviewer.
+
+#### Event Deduplication
+The same PR/issue can appear in multiple searches (e.g., user is mentioned AND requested as reviewer). Events are deduplicated by URL, with relationships merged:
 
 ```go
-// Package slack implements the Slack datasource using the Slack Web API.
-// Ground truth defined in specs/efas/0003-datasource-interface.md
-//
-// IT IS FORBIDDEN TO CHANGE the core fetch logic without updating EFA 0003.
-package slack
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
-	"sort"
-	"strings"
-	"time"
-
-	"github.com/dakaneye/kora/internal/auth"
-	"github.com/dakaneye/kora/internal/datasources"
-	"github.com/dakaneye/kora/internal/models"
-)
-
-// DataSource fetches events from Slack (DMs and mentions).
-//
-// SECURITY: The Slack token is retrieved from auth.AuthProvider and used
-// only for API calls. It is never logged or exposed.
-type DataSource struct {
-	authProvider auth.AuthProvider
-	httpClient   *http.Client
-	baseURL      string
-	userID       string // cached user ID for mention searches
-}
-
-// DataSourceOption configures the Slack DataSource.
-type DataSourceOption func(*DataSource)
-
-// WithHTTPClient sets a custom HTTP client.
-func WithHTTPClient(client *http.Client) DataSourceOption {
-	return func(d *DataSource) {
-		d.httpClient = client
-	}
-}
-
-// WithBaseURL sets a custom Slack API base URL (for testing).
-func WithBaseURL(baseURL string) DataSourceOption {
-	return func(d *DataSource) {
-		d.baseURL = baseURL
-	}
-}
-
-// NewDataSource creates a Slack datasource.
-func NewDataSource(authProvider auth.AuthProvider, opts ...DataSourceOption) (*DataSource, error) {
-	if authProvider.Service() != auth.ServiceSlack {
-		return nil, fmt.Errorf("slack datasource requires slack auth provider")
-	}
-
-	d := &DataSource{
-		authProvider: authProvider,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		baseURL: "https://slack.com/api",
-	}
-	for _, opt := range opts {
-		opt(d)
-	}
-	return d, nil
-}
-
-func (d *DataSource) Name() string           { return "slack" }
-func (d *DataSource) Service() models.Source { return models.SourceSlack }
-
-// Fetch retrieves Slack events (DMs and mentions).
-//
-// Search strategy:
-//  1. Get user ID via auth.test
-//  2. Search for @mentions: search.messages with <@USER_ID>
-//  3. List DM conversations and fetch unread messages
-//
-// SECURITY: Token is obtained from AuthProvider and used only in Authorization header.
-// It is never logged or included in error messages.
-func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (*datasources.FetchResult, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, fmt.Errorf("slack fetch: %w", err)
-	}
-
-	// Get credential
-	cred, err := d.authProvider.GetCredential(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("slack fetch: %w", datasources.ErrNotAuthenticated)
-	}
-
-	token := cred.Value()
-	if token == "" {
-		return nil, fmt.Errorf("slack fetch: %w", datasources.ErrNotAuthenticated)
-	}
-
-	result := &datasources.FetchResult{
-		Stats: datasources.FetchStats{},
-	}
-	startTime := time.Now()
-
-	// Get user ID if not cached
-	if d.userID == "" {
-		userID, err := d.getUserID(ctx, token)
-		if err != nil {
-			return nil, fmt.Errorf("slack fetch: get user id: %w", err)
-		}
-		d.userID = userID
-		result.Stats.APICallCount++
-	}
-
-	var allEvents []models.Event
-	var fetchErrors []error
-
-	// 1. Search for mentions
-	mentions, err := d.fetchMentions(ctx, token, opts.Since)
-	if err != nil {
-		fetchErrors = append(fetchErrors, fmt.Errorf("mentions: %w", err))
-	} else {
-		allEvents = append(allEvents, mentions...)
-	}
-
-	// 2. Fetch DMs
-	dms, err := d.fetchDMs(ctx, token, opts.Since)
-	if err != nil {
-		fetchErrors = append(fetchErrors, fmt.Errorf("dms: %w", err))
-	} else {
-		allEvents = append(allEvents, dms...)
-	}
-
-	// Deduplicate by URL
-	allEvents = deduplicateEvents(allEvents)
-
-	// Filter by options
-	result.Stats.EventsFetched = len(allEvents)
-	allEvents = filterEvents(allEvents, opts)
-	result.Stats.EventsReturned = len(allEvents)
-
-	// Apply limit
-	if opts.Limit > 0 && len(allEvents) > opts.Limit {
-		allEvents = allEvents[:opts.Limit]
-	}
-
-	// Sort by timestamp
-	sort.Slice(allEvents, func(i, j int) bool {
-		return allEvents[i].Timestamp.Before(allEvents[j].Timestamp)
-	})
-
-	// Validate all events
-	for i, event := range allEvents {
-		if err := event.Validate(); err != nil {
-			fetchErrors = append(fetchErrors, fmt.Errorf("event %d validation: %w", i, err))
-		}
-	}
-
-	result.Events = allEvents
-	result.Errors = fetchErrors
-	result.Partial = len(fetchErrors) > 0 && len(allEvents) > 0
-	result.Stats.Duration = time.Since(startTime)
-
-	return result, nil
-}
-
-// getUserID retrieves the authenticated user's ID via auth.test.
-func (d *DataSource) getUserID(ctx context.Context, token string) (string, error) {
-	resp, err := d.apiRequest(ctx, token, "auth.test", nil)
-	if err != nil {
-		return "", err
-	}
-
-	var authResp struct {
-		OK     bool   `json:"ok"`
-		Error  string `json:"error"`
-		UserID string `json:"user_id"`
-	}
-	if err := json.Unmarshal(resp, &authResp); err != nil {
-		return "", fmt.Errorf("parse auth.test: %w", err)
-	}
-	if !authResp.OK {
-		return "", fmt.Errorf("auth.test failed: %s", authResp.Error)
-	}
-
-	return authResp.UserID, nil
-}
-
-// fetchMentions searches for @mentions of the user.
-// Uses search.messages API with query: <@USER_ID> after:DATE
-func (d *DataSource) fetchMentions(ctx context.Context, token string, since time.Time) ([]models.Event, error) {
-	query := fmt.Sprintf("<@%s> after:%s", d.userID, since.Format("2006-01-02"))
-
-	params := url.Values{
-		"query": {query},
-		"count": {"100"},
-		"sort":  {"timestamp"},
-	}
-
-	resp, err := d.apiRequest(ctx, token, "search.messages", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var searchResp slackSearchResponse
-	if err := json.Unmarshal(resp, &searchResp); err != nil {
-		return nil, fmt.Errorf("parse search.messages: %w", err)
-	}
-	if !searchResp.OK {
-		return nil, fmt.Errorf("search.messages failed: %s", searchResp.Error)
-	}
-
-	events := make([]models.Event, 0, len(searchResp.Messages.Matches))
-	for _, msg := range searchResp.Messages.Matches {
-		// Parse Slack timestamp to time.Time
-		ts, err := parseSlackTimestamp(msg.TS)
-		if err != nil {
-			continue // Skip malformed timestamps
-		}
-
-		// Skip messages from before the since time
-		if !ts.After(since) {
-			continue
-		}
-
-		event := models.Event{
-			Type:           models.EventTypeSlackMention,
-			Title:          truncateTitle(stripMrkdwn(msg.Text)),
-			Source:         models.SourceSlack,
-			URL:            msg.Permalink,
-			Author:         models.Person{Username: msg.Username, Name: msg.Username},
-			Timestamp:      ts,
-			Priority:       models.PriorityMedium, // Mentions are medium priority
-			RequiresAction: false,
-			Metadata: map[string]any{
-				"workspace":       getWorkspaceFromPermalink(msg.Permalink),
-				"channel":         msg.Channel.Name,
-				"is_thread_reply": msg.TS != msg.ThreadTS && msg.ThreadTS != "",
-			},
-		}
-		if msg.ThreadTS != "" {
-			event.Metadata["thread_ts"] = msg.ThreadTS
-		}
-
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-// fetchDMs retrieves direct messages since the given time.
-// Strategy: List IM conversations, then fetch history for each.
-func (d *DataSource) fetchDMs(ctx context.Context, token string, since time.Time) ([]models.Event, error) {
-	// 1. List IM conversations
-	params := url.Values{
-		"types":            {"im"},
-		"exclude_archived": {"true"},
-		"limit":            {"100"},
-	}
-
-	resp, err := d.apiRequest(ctx, token, "users.conversations", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var convResp slackConversationsResponse
-	if err := json.Unmarshal(resp, &convResp); err != nil {
-		return nil, fmt.Errorf("parse users.conversations: %w", err)
-	}
-	if !convResp.OK {
-		return nil, fmt.Errorf("users.conversations failed: %s", convResp.Error)
-	}
-
-	// 2. Fetch history for each DM channel
-	var allEvents []models.Event
-	sinceUnix := fmt.Sprintf("%d.000000", since.Unix())
-
-	for _, channel := range convResp.Channels {
-		histParams := url.Values{
-			"channel": {channel.ID},
-			"oldest":  {sinceUnix},
-			"limit":   {"50"},
-		}
-
-		histResp, err := d.apiRequest(ctx, token, "conversations.history", histParams)
-		if err != nil {
-			continue // Skip this channel on error
-		}
-
-		var history slackHistoryResponse
-		if err := json.Unmarshal(histResp, &history); err != nil {
-			continue
-		}
-		if !history.OK {
-			continue
-		}
-
-		for _, msg := range history.Messages {
-			// Skip own messages
-			if msg.User == d.userID {
-				continue
-			}
-
-			ts, err := parseSlackTimestamp(msg.TS)
-			if err != nil {
-				continue
-			}
-
-			// Skip messages from before the since time
-			if !ts.After(since) {
-				continue
-			}
-
-			event := models.Event{
-				Type:           models.EventTypeSlackDM,
-				Title:          truncateTitle(stripMrkdwn(msg.Text)),
-				Source:         models.SourceSlack,
-				URL:            buildDMPermalink(channel.ID, msg.TS),
-				Author:         models.Person{Username: msg.User},
-				Timestamp:      ts,
-				Priority:       models.PriorityHigh, // DMs are high priority
-				RequiresAction: true,
-				Metadata: map[string]any{
-					"is_thread_reply": msg.ThreadTS != "" && msg.TS != msg.ThreadTS,
-				},
-			}
-			if msg.ThreadTS != "" {
-				event.Metadata["thread_ts"] = msg.ThreadTS
-			}
-
-			allEvents = append(allEvents, event)
-		}
-	}
-
-	return allEvents, nil
-}
-
-// apiRequest makes an authenticated request to the Slack API.
-// SECURITY: Token is only used in Authorization header, never logged.
-func (d *DataSource) apiRequest(ctx context.Context, token, method string, params url.Values) ([]byte, error) {
-	reqURL := fmt.Sprintf("%s/%s", d.baseURL, method)
-	if params != nil {
-		reqURL += "?" + params.Encode()
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	// SECURITY: Token is only used here, in the Authorization header.
-	// It must never be logged or included in error messages.
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := d.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("api request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusTooManyRequests {
-		// Rate limited
-		retryAfter := resp.Header.Get("Retry-After")
-		return nil, fmt.Errorf("%w: retry after %s", datasources.ErrRateLimited, retryAfter)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("api error: status %d", resp.StatusCode)
-	}
-
-	// Read response body with limit to prevent memory exhaustion
-	body := make([]byte, 0, 1024*1024) // 1MB initial capacity
-	buf := make([]byte, 32*1024)       // 32KB read buffer
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			body = append(body, buf[:n]...)
-			if len(body) > 10*1024*1024 { // 10MB limit
-				return nil, fmt.Errorf("response too large")
-			}
-		}
-		if err != nil {
-			break
-		}
-	}
-
-	return body, nil
-}
-
-// Slack API response types
-
-type slackSearchResponse struct {
-	OK       bool   `json:"ok"`
-	Error    string `json:"error"`
-	Messages struct {
-		Matches []slackMessage `json:"matches"`
-	} `json:"messages"`
-}
-
-type slackConversationsResponse struct {
-	OK       bool           `json:"ok"`
-	Error    string         `json:"error"`
-	Channels []slackChannel `json:"channels"`
-}
-
-type slackHistoryResponse struct {
-	OK       bool           `json:"ok"`
-	Error    string         `json:"error"`
-	Messages []slackMessage `json:"messages"`
-}
-
-type slackChannel struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-type slackMessage struct {
-	TS        string `json:"ts"`
-	ThreadTS  string `json:"thread_ts"`
-	Text      string `json:"text"`
-	User      string `json:"user"`
-	Username  string `json:"username"`
-	Permalink string `json:"permalink"`
-	Channel   struct {
-		Name string `json:"name"`
-	} `json:"channel"`
-}
-
-// Helper functions
-
-func parseSlackTimestamp(ts string) (time.Time, error) {
-	// Slack timestamps are "1234567890.123456"
-	parts := strings.Split(ts, ".")
-	if len(parts) != 2 {
-		return time.Time{}, fmt.Errorf("invalid slack timestamp: %s", ts)
-	}
-
-	var sec, usec int64
-	if _, err := fmt.Sscanf(parts[0], "%d", &sec); err != nil {
-		return time.Time{}, err
-	}
-	if _, err := fmt.Sscanf(parts[1], "%d", &usec); err != nil {
-		return time.Time{}, err
-	}
-
-	return time.Unix(sec, usec*1000), nil
-}
-
-func truncateTitle(title string) string {
-	// Remove newlines for single-line title
-	title = strings.ReplaceAll(title, "\n", " ")
-	title = strings.TrimSpace(title)
-
-	if len(title) <= 100 {
-		return title
-	}
-	return title[:97] + "..."
-}
-
-func stripMrkdwn(text string) string {
-	// Basic mrkdwn stripping - remove user mentions format
-	// <@U12345|name> -> @name
-	// <#C12345|channel> -> #channel
-	// <https://url|text> -> text
-
-	result := text
-
-	// User mentions
-	for {
-		start := strings.Index(result, "<@")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(result[start:], ">")
-		if end == -1 {
-			break
-		}
-		mention := result[start : start+end+1]
-		if idx := strings.Index(mention, "|"); idx != -1 {
-			name := mention[idx+1 : len(mention)-1]
-			result = result[:start] + "@" + name + result[start+end+1:]
-		} else {
-			result = result[:start] + "@user" + result[start+end+1:]
-		}
-	}
-
-	// Channel mentions
-	for {
-		start := strings.Index(result, "<#")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(result[start:], ">")
-		if end == -1 {
-			break
-		}
-		mention := result[start : start+end+1]
-		if idx := strings.Index(mention, "|"); idx != -1 {
-			name := mention[idx+1 : len(mention)-1]
-			result = result[:start] + "#" + name + result[start+end+1:]
-		} else {
-			result = result[:start] + "#channel" + result[start+end+1:]
-		}
-	}
-
-	return result
-}
-
-func getWorkspaceFromPermalink(permalink string) string {
-	// Extract workspace from https://workspace.slack.com/archives/...
-	u, err := url.Parse(permalink)
-	if err != nil {
-		return ""
-	}
-	parts := strings.Split(u.Host, ".")
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	return ""
-}
-
-func buildDMPermalink(channelID, ts string) string {
-	// Build a permalink for DM messages
-	// Format: https://app.slack.com/client/T.../D.../p...
-	return fmt.Sprintf("slack://channel?team=&id=%s&message=%s", channelID, strings.Replace(ts, ".", "", 1))
-}
-
-func deduplicateEvents(events []models.Event) []models.Event {
-	seen := make(map[string]bool)
-	result := make([]models.Event, 0, len(events))
-	for _, e := range events {
-		key := e.URL
-		if key == "" {
-			key = fmt.Sprintf("%s-%s-%s", e.Source, e.Type, e.Timestamp.String())
-		}
-		if !seen[key] {
-			seen[key] = true
-			result = append(result, e)
-		}
-	}
-	return result
-}
-
-func filterEvents(events []models.Event, opts datasources.FetchOptions) []models.Event {
-	if opts.Filter == nil {
-		return events
-	}
-
-	result := make([]models.Event, 0, len(events))
-	for _, e := range events {
-		// Filter by event types
-		if len(opts.Filter.EventTypes) > 0 {
-			found := false
-			for _, t := range opts.Filter.EventTypes {
-				if e.Type == t {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
-		}
-
-		// Filter by priority
-		if opts.Filter.MinPriority > 0 && e.Priority > opts.Filter.MinPriority {
-			continue
-		}
-
-		// Filter by requires action
-		if opts.Filter.RequiresAction && !e.RequiresAction {
-			continue
-		}
-
-		result = append(result, e)
-	}
-	return result
-}
+// Before deduplication:
+// Event 1: pr_mention, user_relationships=["mentioned"]
+// Event 2: pr_review, user_relationships=["direct_reviewer"]
+
+// After deduplication (higher priority wins):
+// Event: pr_review, user_relationships=["mentioned", "direct_reviewer"]
 ```
+
+#### Priority Calculation
+Priorities follow EFA 0001 rules:
+
+**PR Review Requests:**
+- Direct user request → Priority 2 (High), relationship "direct_reviewer"
+- Team-only request → Priority 3 (Medium), relationship "team_reviewer"
+
+**PR Author (own PRs):**
+- CI failing/error → Priority 1 (Critical), title "CI failing: ...", RequiresAction=true
+- Changes requested → Priority 2 (High), title "Changes requested: ...", RequiresAction=true
+- Has approvals → Priority 3 (Medium), title "Ready to merge: ...", RequiresAction=false
+- Awaiting review → Priority 3 (Medium), title "Awaiting review: ...", RequiresAction=false
+- Default → Priority 3 (Medium), title "Your PR: ...", RequiresAction=false
+
+**PR Codeowner:**
+- Always Priority 3 (Medium), RequiresAction=true, title "You own files in: ..."
+
+**Mentions and Assignments:**
+- Always Priority 3 (Medium)
+
+#### Security: gh CLI Delegation
+All API calls use `GitHubDelegatedCredential.ExecuteAPI()` which delegates to `gh api` CLI. The datasource never sees or handles GitHub tokens directly (per EFA 0002).
 
 ## AI Agent Guidelines
 
@@ -1487,6 +518,7 @@ if err1 != nil {
     result.Errors = append(result.Errors, err1)
 } else {
     result.Events = append(result.Events, events1...)
+    result.Stats.APICallCount++
 }
 // Continue with other fetches...
 result.Partial = len(result.Errors) > 0 && len(result.Events) > 0
@@ -1509,7 +541,9 @@ for _, event := range events {
     if err := event.Validate(); err != nil {
         // Log and skip, or add to errors
         fetchErrors = append(fetchErrors, fmt.Errorf("validation: %w", err))
+        continue
     }
+    validEvents = append(validEvents, event)
 }
 ```
 
@@ -1536,7 +570,112 @@ if resp.StatusCode == http.StatusTooManyRequests {
 }
 ```
 
-### Rule 7: New Datasources Require EFA Update
+### Rule 7: GraphQL Queries Must Fetch Complete Context
+
+**For GitHub datasource, use PRQuery/IssueQuery to fetch ALL EFA 0001 metadata fields.**
+
+The two-phase approach is required:
+1. Search for items (lightweight)
+2. Fetch full context for each item (complete metadata)
+
+**CORRECT:**
+```go
+// Phase 1: Search
+items, err := searchPRs(ctx, client, "review-requested:@me", 100)
+
+// Phase 2: Fetch full context for each
+for _, item := range items {
+    metadata, err := fetchPRFullContext(ctx, client, item.Owner, item.Repo, item.Number)
+    // metadata contains ALL fields from PRQuery
+}
+```
+
+**FORBIDDEN:**
+```go
+// STOP - using search results only, missing rich context
+items, err := searchPRs(ctx, client, query, 100)
+for _, item := range items {
+    // Missing: full context fetch
+    event := models.Event{
+        Metadata: map[string]any{
+            "repo": item.Repository,  // Missing all other metadata!
+        },
+    }
+}
+```
+
+### Rule 8: CODEOWNERS Check Must Not Duplicate Reviewers
+
+**When checking CODEOWNERS, skip PRs where user is already an explicit reviewer.**
+
+**CORRECT:**
+```go
+// Check existing review requests
+for _, req := range reviewRequests {
+    if req["login"] == currentUser && req["type"] == "user" {
+        // Already a reviewer, don't create codeowner event
+        return nil, nil
+    }
+}
+
+// Check existing reviews
+for _, review := range reviews {
+    if review["author"] == currentUser {
+        // Already reviewed, don't create codeowner event
+        return nil, nil
+    }
+}
+
+// Only now check CODEOWNERS
+if isCodeowner {
+    return createCodeownerEvent(event), nil
+}
+```
+
+**FORBIDDEN:**
+```go
+// STOP - creating codeowner event without checking reviewer status
+if isCodeowner {
+    return createCodeownerEvent(event), nil  // May duplicate reviewer event
+}
+```
+
+### Rule 9: user_relationships Must Be Populated
+
+**All GitHub events MUST populate the user_relationships metadata field.**
+
+See EFA 0001 for valid relationship values:
+- "author" - User created this PR
+- "direct_reviewer" - User directly requested
+- "team_reviewer" - User's team requested
+- "mentioned" - User @mentioned
+- "codeowner" - User owns changed files
+- "assignee" - User assigned to issue
+
+### Rule 10: Priority Must Follow EFA 0001 Rules
+
+**Priority calculation MUST use the rules defined in EFA 0001.**
+
+For PR author events, check CI status first, then review state:
+```go
+if ciRollup == "failure" || ciRollup == "error" {
+    return PriorityCritical // 1
+}
+if hasChangesRequested {
+    return PriorityHigh // 2
+}
+return PriorityMedium // 3
+```
+
+For PR review requests, check request type:
+```go
+if hasDirectUserRequest {
+    return PriorityHigh // 2
+}
+return PriorityMedium // 3 (team-only)
+```
+
+### Rule 11: New Datasources Require EFA Update
 
 **Adding a new datasource implementation requires updating this EFA** with:
 - Service constant in models.Source (EFA 0001)
@@ -1552,6 +691,7 @@ if resp.StatusCode == http.StatusTooManyRequests {
 3. **Different concurrency model**: Discuss before implementing
 4. **Credential handling changes**: Review EFA 0002 first
 5. **New metadata keys**: Update EFA 0001 first
+6. **Change to GraphQL queries**: Update query documentation in this EFA
 
 ### Code Protection Comments
 
@@ -1592,9 +732,10 @@ func (d *DataSource) Fetch(ctx context.Context, opts FetchOptions) (*FetchResult
 | Concern | Approach |
 |---------|----------|
 | Multiple datasources | Run concurrently via DataSourceRunner |
-| Large response bodies | 10MB limit on API responses |
+| Large response bodies | GraphQL queries fetch only needed fields |
 | Rate limiting | Detect and report, support partial results |
 | Timeout handling | Per-datasource timeout via context |
+| Duplicate API calls | Two-phase approach: search once, fetch context per item |
 
 ### Testing Implications
 
@@ -1603,6 +744,9 @@ func (d *DataSource) Fetch(ctx context.Context, opts FetchOptions) (*FetchResult
 3. **Test partial failure** scenarios (some calls succeed, others fail)
 4. **Test rate limiting** detection and reporting
 5. **Validate all test events** pass Event.Validate()
+6. **Test CODEOWNERS** matching logic with various patterns
+7. **Test deduplication** merges relationships correctly
+8. **Test priority** calculation for all combinations
 
 ```go
 // Example test structure
