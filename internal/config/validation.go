@@ -11,6 +11,10 @@ import (
 // GitHub usernames: alphanumeric, hyphens, 1-39 chars, no leading/trailing hyphens.
 var validOrgPattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$`)
 
+// emailPattern is a basic email format validation.
+// Not a full RFC 5322 validator, but catches common errors.
+var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+$`)
+
 // validFormats is the set of allowed output formats.
 var validFormats = map[string]struct{}{
 	"json":        {},
@@ -49,7 +53,11 @@ func (c *DatasourcesConfig) Validate() error {
 	var errs []error
 
 	// At least one datasource must be enabled
-	if !c.GitHub.Enabled {
+	hasGitHub := c.GitHub.Enabled
+	hasGoogleCalendars := len(c.Google.Calendars) > 0
+	hasGmail := len(c.Google.Gmail) > 0
+
+	if !hasGitHub && !hasGoogleCalendars && !hasGmail {
 		errs = append(errs, errors.New("at least one datasource must be enabled"))
 	}
 
@@ -57,6 +65,39 @@ func (c *DatasourcesConfig) Validate() error {
 	for _, org := range c.GitHub.Orgs {
 		if !validOrgPattern.MatchString(org) {
 			errs = append(errs, fmt.Errorf("invalid github org name: %q", org))
+		}
+	}
+
+	// Validate Google config
+	if err := c.Google.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+// Validate checks that Google configuration is valid.
+func (c *GoogleConfig) Validate() error {
+	var errs []error
+
+	// Validate each calendar config
+	for i, cal := range c.Calendars {
+		if cal.Email == "" {
+			errs = append(errs, fmt.Errorf("google.calendars[%d]: email is required", i))
+		} else if !emailPattern.MatchString(cal.Email) {
+			errs = append(errs, fmt.Errorf("google.calendars[%d]: invalid email format %q", i, cal.Email))
+		}
+	}
+
+	// Validate each gmail config
+	for i, gmail := range c.Gmail {
+		if gmail.Email == "" {
+			errs = append(errs, fmt.Errorf("google.gmail[%d]: email is required", i))
+		} else if !emailPattern.MatchString(gmail.Email) {
+			errs = append(errs, fmt.Errorf("google.gmail[%d]: invalid email format %q", i, gmail.Email))
 		}
 	}
 

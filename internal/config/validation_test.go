@@ -115,9 +115,135 @@ func TestDatasourcesConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "github disabled",
+			name: "github disabled no google",
 			cfg: DatasourcesConfig{
 				GitHub: GitHubConfig{Enabled: false},
+			},
+			wantErr: true,
+		},
+		{
+			name: "github disabled with google calendar",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{Enabled: false},
+				Google: GoogleConfig{
+					Calendars: []CalendarConfig{
+						{Email: "test@example.com"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "github disabled with gmail",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{Enabled: false},
+				Google: GoogleConfig{
+					Gmail: []GmailConfig{
+						{Email: "test@example.com"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGoogleConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     GoogleConfig
+		wantErr bool
+	}{
+		{
+			name:    "empty config",
+			cfg:     GoogleConfig{},
+			wantErr: false,
+		},
+		{
+			name: "valid calendar",
+			cfg: GoogleConfig{
+				Calendars: []CalendarConfig{
+					{Email: "test@example.com", CalendarID: "primary"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid gmail",
+			cfg: GoogleConfig{
+				Gmail: []GmailConfig{
+					{Email: "test@example.com"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid gmail with important senders",
+			cfg: GoogleConfig{
+				Gmail: []GmailConfig{
+					{
+						Email:            "test@example.com",
+						ImportantSenders: []string{"boss@company.com", "@company.com"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "calendar missing email",
+			cfg: GoogleConfig{
+				Calendars: []CalendarConfig{
+					{Email: ""},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "gmail missing email",
+			cfg: GoogleConfig{
+				Gmail: []GmailConfig{
+					{Email: ""},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "calendar invalid email format",
+			cfg: GoogleConfig{
+				Calendars: []CalendarConfig{
+					{Email: "not-an-email"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "gmail invalid email format",
+			cfg: GoogleConfig{
+				Gmail: []GmailConfig{
+					{Email: "missing-at-sign"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "multiple errors",
+			cfg: GoogleConfig{
+				Calendars: []CalendarConfig{
+					{Email: ""},
+					{Email: "bad"},
+				},
+				Gmail: []GmailConfig{
+					{Email: ""},
+				},
 			},
 			wantErr: true,
 		},

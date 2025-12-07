@@ -6,7 +6,7 @@ agents: golang-pro, documentation-engineer, prompt-engineer
 
 # EFA 0003: DataSource Interface Ground Truth
 
-This EFA defines the DataSource interface for fetching events from external services (GitHub and future datasources). It specifies how datasources integrate with the authentication layer (EFA 0002) and produce normalized events (EFA 0001).
+This EFA defines the DataSource interface for fetching events from external services (GitHub, Google Calendar, Gmail, and future datasources). It specifies how datasources integrate with the authentication layer (EFA 0002) and produce normalized events (EFA 0001).
 
 ## Motivation & Prior Art
 
@@ -17,7 +17,7 @@ Datasources are the bridge between external services and Kora's event model. Wit
 - Mix credential handling into data fetching
 
 **Goals:**
-- Single DataSource interface all data fetchers implement
+- Single canonical DataSource interface all data fetchers implement
 - Clear concurrency model for parallel fetching
 - Proper error handling with partial success support
 - Rate limit awareness built into the interface
@@ -42,19 +42,19 @@ Datasources are the bridge between external services and Kora's event model. Wit
 │  │  - Handles partial failures gracefully                           │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                │                                         │
-│           ┌───────────────────┼────────────────────┐                    │
-│           ▼                   ▼                    ▼                    │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐           │
-│  │ GitHubDataSource│ │ Future Sources  │ │ Future Sources  │           │
-│  │                 │ │ (Linear)        │ │ (Calendar)      │           │
-│  │ AuthProvider ●──┼─┤ AuthProvider ●──┼─┤ AuthProvider ●  │           │
-│  │                 │ │                 │ │                 │           │
-│  └────────┬────────┘ └────────┬────────┘ └─────────────────┘           │
-│           │                   │                                         │
-│           ▼                   ▼                                         │
-│    ┌────────────┐       ┌────────────┐                                 │
-│    │ gh CLI API │       │ Future APIs│                                 │
-│    └────────────┘       └────────────┘                                 │
+│           ┌───────────────────┼────────────────────────────────────┐    │
+│           ▼                   ▼                ▼                    ▼    │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌──────────────┐ ┌──────────┐ │
+│  │ GitHubDataSource│ │GoogleCalendar   │ │GmailDataSrc  │ │ Future   │ │
+│  │                 │ │DataSource       │ │              │ │ Sources  │ │
+│  │ AuthProvider ●──┼─┤AuthProvider ●───┼─┤AuthProvider●─┼─┤          │ │
+│  │                 │ │                 │ │              │ │          │ │
+│  └────────┬────────┘ └────────┬────────┘ └──────┬───────┘ └──────────┘ │
+│           │                   │                  │                       │
+│           ▼                   ▼                  ▼                       │
+│    ┌────────────┐       ┌──────────────┐  ┌──────────────┐             │
+│    │ gh CLI API │       │ Calendar API │  │  Gmail API   │             │
+│    └────────────┘       └──────────────┘  └──────────────┘             │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -76,7 +76,7 @@ import (
 )
 
 // DataSource fetches events from an external service.
-// Each service (GitHub, Linear, Calendar) has one DataSource implementation.
+// Each service (GitHub, Linear, Calendar, Gmail) has one DataSource implementation.
 //
 // Implementations must:
 //   - Respect context cancellation at all stages
@@ -468,6 +468,283 @@ Priorities follow EFA 0001 rules:
 #### Security: gh CLI Delegation
 All API calls use `GitHubDelegatedCredential.ExecuteAPI()` which delegates to `gh api` CLI. The datasource never sees or handles GitHub tokens directly (per EFA 0002).
 
+### Google Calendar DataSource Implementation
+
+The Google Calendar datasource fetches upcoming meetings and events requiring user attention.
+
+#### API Calls
+Uses Google Calendar API v3:
+- `calendars.list()` - Get user's calendar list
+- `events.list()` - List events in a time range
+
+#### Filtering Rules
+
+**Include:**
+- Accepted meetings (responseStatus: "accepted")
+- Tentative meetings (responseStatus: "tentative")
+- Events needing RSVP (responseStatus: "needsAction")
+- Events user is organizing with pending RSVPs (has attendees with "needsAction")
+- All-day events (for context)
+
+**Exclude:**
+- Declined events (responseStatus: "declined")
+- Events outside the Since window (start time before Since)
+- Past events (end time before Now)
+
+**Recurring Events:**
+- Only fetch the next occurrence within the time window
+- Use `singleEvents=true` parameter to expand recurring events
+
+#### Event Type and Priority Calculation
+
+```go
+func calculateCalendarEventType(event CalendarEvent, now time.Time) (EventType, Priority, bool) {
+	// Check if upcoming within 1 hour
+	if event.StartTime.Sub(now) <= time.Hour && event.StartTime.After(now) {
+		return EventTypeCalendarUpcoming, PriorityHigh, false
+	}
+
+	// Check response status
+	switch event.ResponseStatus {
+	case "needsAction":
+		return EventTypeCalendarNeedsRSVP, PriorityMedium, true
+	case "tentative":
+		return EventTypeCalendarTentative, PriorityMedium, false
+	case "accepted":
+		if event.IsAllDay {
+			return EventTypeCalendarAllDay, PriorityInfo, false
+		}
+		return EventTypeCalendarMeeting, PriorityMedium, false
+	}
+
+	// Check if user is organizer awaiting responses
+	if event.IsOrganizer && len(event.PendingRSVPs) > 0 {
+		return EventTypeCalendarOrganizerPending, PriorityMedium, true
+	}
+
+	return EventTypeCalendarAllDay, PriorityInfo, false
+}
+```
+
+**Priority Rules:**
+- `calendar_upcoming` (starts within 1hr) → Priority 2 (High), RequiresAction=false
+- `calendar_needs_rsvp` (no response) → Priority 3 (Medium), RequiresAction=true
+- `calendar_organizer_pending` (organizing, awaiting RSVPs) → Priority 3 (Medium), RequiresAction=true
+- `calendar_tentative` → Priority 3 (Medium), RequiresAction=false
+- `calendar_meeting` (accepted) → Priority 3 (Medium), RequiresAction=false
+- `calendar_all_day` → Priority 4 (Info), RequiresAction=false
+
+#### Concurrent Fetching
+Multiple calendars are fetched concurrently using errgroup:
+
+```go
+func (d *GoogleCalendarDataSource) Fetch(ctx context.Context, opts FetchOptions) (*FetchResult, error) {
+	g, gctx := errgroup.WithContext(ctx)
+
+	var mu sync.Mutex
+	var allEvents []models.Event
+	var errors []error
+
+	for _, calendarID := range d.calendarIDs {
+		calendarID := calendarID // capture loop variable
+		g.Go(func() error {
+			events, err := d.fetchCalendar(gctx, calendarID, opts)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errors = append(errors, err)
+			} else {
+				allEvents = append(allEvents, events...)
+			}
+			return nil // Don't fail entire fetch on single calendar error
+		})
+	}
+
+	_ = g.Wait()
+
+	// Sort by start time
+	sort.Slice(allEvents, func(i, j int) bool {
+		return allEvents[i].Timestamp.Before(allEvents[j].Timestamp)
+	})
+
+	result := &FetchResult{
+		Events: allEvents,
+		Errors: errors,
+		Partial: len(errors) > 0 && len(allEvents) > 0,
+	}
+	return result, nil
+}
+```
+
+#### Auth Delegation
+Uses GoogleAuthProvider (EFA 0002) for OAuth credentials. Never handles tokens directly:
+
+```go
+cred, err := d.authProvider.GetCredential(ctx)
+if err != nil {
+	return nil, fmt.Errorf("calendar auth: %w", err)
+}
+
+// Use credential for API calls
+req, _ := http.NewRequestWithContext(ctx, "GET", calendarURL, nil)
+req.Header.Set("Authorization", "Bearer "+cred.Value())
+```
+
+### Gmail DataSource Implementation
+
+The Gmail datasource fetches unread and unreplied emails from real people (excluding automated emails and mailing lists).
+
+#### API Calls
+Uses Gmail API v1:
+- `messages.list()` - Search for messages with query
+- `messages.get()` - Get full message with headers
+- `messages.batchGet()` - Batch fetch multiple messages (up to 100)
+
+#### Gmail Queries
+
+Two primary queries to capture different email states:
+
+```go
+const (
+	// Query 1: Unread emails
+	queryUnread = "is:unread after:%d"
+
+	// Query 2: Unreplied emails where user is direct recipient
+	queryUnreplied = "in:inbox -in:sent after:%d"
+)
+```
+
+#### Filtering Rules
+
+**Include:**
+- Unread from real people (no List-Unsubscribe header)
+- Unreplied where user is direct recipient (in To: field)
+- Important senders (configured per account)
+
+**Exclude:**
+- Mailing lists (List-Unsubscribe header present)
+- Automated senders (noreply@, no-reply@, donotreply@, notifications@)
+- Read AND replied (user has sent a reply in the thread)
+
+**Important Senders:**
+Configurable per Gmail account in config:
+
+```yaml
+google:
+  gmail:
+    - email: work@company.com
+      important_senders:
+        - manager@company.com
+        - vp@company.com
+```
+
+#### Event Type and Priority Calculation
+
+```go
+func calculateEmailPriority(msg GmailMessage, importantSenders []string) (EventType, Priority, bool) {
+	// Check if from important sender or Gmail-marked important
+	if msg.IsImportant || isFromImportantSender(msg.FromEmail, importantSenders) {
+		return EventTypeEmailImportant, PriorityHigh, true
+	}
+
+	// Check if directly addressed (in To: field) and unread
+	if msg.IsDirectlyAddressed && msg.IsUnread {
+		return EventTypeEmailDirect, PriorityMedium, true
+	}
+
+	// CC'd emails
+	if msg.IsCCd {
+		return EventTypeEmailCC, PriorityLow, false
+	}
+
+	return EventTypeEmailCC, PriorityLow, false
+}
+```
+
+**Priority Rules:**
+- `email_important` (important sender or Gmail-marked) → Priority 2 (High), RequiresAction=true
+- `email_direct` (user in To:, unread) → Priority 3 (Medium), RequiresAction=true
+- `email_cc` (user in CC:) → Priority 4 (Low), RequiresAction=false
+
+#### Deduplication
+Same message can appear in both unread and unreplied queries. Deduplicate by message_id:
+
+```go
+func deduplicateEmails(events []models.Event) []models.Event {
+	seen := make(map[string]bool)
+	var deduplicated []models.Event
+
+	// Sort by priority (higher priority first)
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Priority < events[j].Priority
+	})
+
+	for _, event := range events {
+		messageID := event.Metadata["message_id"].(string)
+		if !seen[messageID] {
+			seen[messageID] = true
+			deduplicated = append(deduplicated, event)
+		}
+	}
+
+	return deduplicated
+}
+```
+
+#### Mailing List Detection
+
+Check for List-Unsubscribe header:
+
+```go
+func isMailingList(headers map[string]string) bool {
+	// List-Unsubscribe header indicates a mailing list
+	if _, ok := headers["List-Unsubscribe"]; ok {
+		return true
+	}
+	// Also check for List-Id
+	if _, ok := headers["List-Id"]; ok {
+		return true
+	}
+	return false
+}
+```
+
+#### Automated Sender Detection
+
+```go
+var automatedSenderPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`^noreply@`),
+	regexp.MustCompile(`^no-reply@`),
+	regexp.MustCompile(`^donotreply@`),
+	regexp.MustCompile(`^notifications@`),
+	regexp.MustCompile(`^automated@`),
+	regexp.MustCompile(`^bot@`),
+}
+
+func isAutomatedSender(email string) bool {
+	for _, pattern := range automatedSenderPatterns {
+		if pattern.MatchString(strings.ToLower(email)) {
+			return true
+		}
+	}
+	return false
+}
+```
+
+#### Auth Delegation
+Uses GoogleAuthProvider (EFA 0002) for OAuth credentials. Same auth provider instance shared with GoogleCalendarDataSource:
+
+```go
+cred, err := d.authProvider.GetCredential(ctx)
+if err != nil {
+	return nil, fmt.Errorf("gmail auth: %w", err)
+}
+
+// Use credential for API calls
+req, _ := http.NewRequestWithContext(ctx, "GET", gmailURL, nil)
+req.Header.Set("Authorization", "Bearer "+cred.Value())
+```
+
 ## AI Agent Guidelines
 
 **THIS SECTION IS CRITICAL. READ IT CAREFULLY.**
@@ -675,7 +952,105 @@ if hasDirectUserRequest {
 return PriorityMedium // 3 (team-only)
 ```
 
-### Rule 11: New Datasources Require EFA Update
+### Rule 11: Google Calendar Must Fetch All Configured Calendars Concurrently
+
+**Google Calendar datasource MUST use errgroup to fetch multiple calendars in parallel.**
+
+**CORRECT:**
+```go
+g, gctx := errgroup.WithContext(ctx)
+for _, calendarID := range d.calendarIDs {
+    calendarID := calendarID // capture
+    g.Go(func() error {
+        events, err := d.fetchCalendar(gctx, calendarID, opts)
+        // Aggregate events...
+        return nil // Don't fail entire fetch
+    })
+}
+_ = g.Wait()
+```
+
+**FORBIDDEN:**
+```go
+// STOP - sequential fetching is too slow
+for _, calendarID := range d.calendarIDs {
+    events, err := d.fetchCalendar(ctx, calendarID, opts)
+    // ...
+}
+```
+
+### Rule 12: Gmail Must Filter Mailing Lists
+
+**Gmail datasource MUST check List-Unsubscribe header to exclude mailing lists.**
+
+**CORRECT:**
+```go
+headers := getMessageHeaders(message)
+if _, ok := headers["List-Unsubscribe"]; ok {
+    // Skip mailing list
+    continue
+}
+if _, ok := headers["List-Id"]; ok {
+    // Skip mailing list
+    continue
+}
+```
+
+**FORBIDDEN:**
+```go
+// STOP - not filtering mailing lists
+// All emails will be included, including spam and newsletters
+```
+
+### Rule 13: Gmail Must Detect Automated Senders
+
+**Gmail datasource MUST filter automated sender patterns (noreply@, no-reply@, etc).**
+
+**CORRECT:**
+```go
+if isAutomatedSender(fromEmail) {
+    // Skip automated sender
+    continue
+}
+
+func isAutomatedSender(email string) bool {
+    patterns := []string{"noreply@", "no-reply@", "donotreply@", "notifications@"}
+    for _, pattern := range patterns {
+        if strings.HasPrefix(strings.ToLower(email), pattern) {
+            return true
+        }
+    }
+    return false
+}
+```
+
+**FORBIDDEN:**
+```go
+// STOP - not filtering automated senders
+// Will include system notifications and automated emails
+```
+
+### Rule 14: Google Datasources Must Use GoogleAuthProvider
+
+**Google Calendar and Gmail datasources MUST use GoogleAuthProvider, never handle tokens directly.**
+
+**CORRECT:**
+```go
+cred, err := d.authProvider.GetCredential(ctx)
+if err != nil {
+    return nil, fmt.Errorf("calendar auth: %w", err)
+}
+req.Header.Set("Authorization", "Bearer "+cred.Value())
+```
+
+**FORBIDDEN:**
+```go
+// STOP - extracting token from keychain directly
+token, err := d.keychain.Get(ctx, "google-token")  // Bypass auth provider
+req.Header.Set("Authorization", "Bearer "+token)
+```
+
+### Rule 15: New Datasources Require EFA Update
 
 **Adding a new datasource implementation requires updating this EFA** with:
 - Service constant in models.Source (EFA 0001)
@@ -692,6 +1067,10 @@ return PriorityMedium // 3 (team-only)
 4. **Credential handling changes**: Review EFA 0002 first
 5. **New metadata keys**: Update EFA 0001 first
 6. **Change to GraphQL queries**: Update query documentation in this EFA
+7. **Change to Google Calendar event filtering**: Discuss filtering rules first
+8. **Change to Gmail query logic**: Discuss query patterns and filtering first
+9. **New automated sender pattern**: Add to automatedSenderPatterns list
+10. **New mailing list detection**: Document in this EFA
 
 ### Code Protection Comments
 
@@ -726,6 +1105,8 @@ func (d *DataSource) Fetch(ctx context.Context, opts FetchOptions) (*FetchResult
 | Credential in error messages | Error messages reference source, not credentials |
 | MITM attacks | TLS 1.2+ required, certificate validation enabled |
 | Response tampering | Validate all events before returning |
+| OAuth token exposure | GoogleAuthProvider handles tokens, datasources never see them |
+| Expired OAuth tokens | GoogleAuthProvider auto-refreshes before API calls |
 
 ### Performance Implications
 
@@ -736,6 +1117,8 @@ func (d *DataSource) Fetch(ctx context.Context, opts FetchOptions) (*FetchResult
 | Rate limiting | Detect and report, support partial results |
 | Timeout handling | Per-datasource timeout via context |
 | Duplicate API calls | Two-phase approach: search once, fetch context per item |
+| Multiple Google calendars | Concurrent fetching via errgroup |
+| Gmail batch operations | Use batchGet() for up to 100 messages |
 
 ### Testing Implications
 
@@ -747,6 +1130,10 @@ func (d *DataSource) Fetch(ctx context.Context, opts FetchOptions) (*FetchResult
 6. **Test CODEOWNERS** matching logic with various patterns
 7. **Test deduplication** merges relationships correctly
 8. **Test priority** calculation for all combinations
+9. **Test Google Calendar** event filtering (accepted, tentative, needsAction)
+10. **Test Gmail** mailing list detection (List-Unsubscribe header)
+11. **Test Gmail** automated sender detection (noreply patterns)
+12. **Test Gmail** important sender matching
 
 ```go
 // Example test structure
@@ -788,6 +1175,60 @@ func TestGitHubDataSource_Fetch(t *testing.T) {
         })
     }
 }
+
+func TestGoogleCalendarDataSource_Fetch(t *testing.T) {
+    tests := []struct {
+        name       string
+        calEvents  []CalendarEvent
+        wantTypes  []models.EventType
+        wantCount  int
+    }{
+        {
+            name: "upcoming meeting within 1 hour",
+            calEvents: []CalendarEvent{
+                {StartTime: time.Now().Add(45 * time.Minute), ResponseStatus: "accepted"},
+            },
+            wantTypes: []models.EventType{models.EventTypeCalendarUpcoming},
+            wantCount: 1,
+        },
+        {
+            name: "needs RSVP",
+            calEvents: []CalendarEvent{
+                {StartTime: time.Now().Add(2 * time.Hour), ResponseStatus: "needsAction"},
+            },
+            wantTypes: []models.EventType{models.EventTypeCalendarNeedsRSVP},
+            wantCount: 1,
+        },
+    }
+    // ...
+}
+
+func TestGmailDataSource_Fetch(t *testing.T) {
+    tests := []struct {
+        name         string
+        messages     []GmailMessage
+        wantFiltered int
+        wantTypes    []models.EventType
+    }{
+        {
+            name: "filters mailing lists",
+            messages: []GmailMessage{
+                {Headers: map[string]string{"List-Unsubscribe": "<...>"}},
+                {Headers: map[string]string{"From": "person@example.com"}},
+            },
+            wantFiltered: 1,
+        },
+        {
+            name: "filters automated senders",
+            messages: []GmailMessage{
+                {From: "noreply@github.com"},
+                {From: "person@example.com"},
+            },
+            wantFiltered: 1,
+        },
+    }
+    // ...
+}
 ```
 
 ## Open Questions
@@ -795,3 +1236,5 @@ func TestGitHubDataSource_Fetch(t *testing.T) {
 1. Should FetchOptions support pagination cursors for resumable fetches?
 2. Should we add a `Health() error` method for pre-flight checks?
 3. Should rate limit backoff be automatic or caller-controlled?
+4. Should Gmail datasource support custom query filters from config?
+5. Should Google Calendar support filtering by specific calendars in FetchOptions?

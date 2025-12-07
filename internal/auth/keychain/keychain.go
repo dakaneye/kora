@@ -69,14 +69,29 @@ var allowedKeychainKeys = map[string]struct{}{
 // Keys must start with a letter and end with a letter or number.
 var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
 
-// validateKey ensures the key is in the allowlist and matches the safe pattern.
+// googleOAuthKeyPattern validates google-oauth-{email} format.
+// SECURITY: This pattern ensures only valid email addresses can be used.
+var googleOAuthKeyPattern = regexp.MustCompile(`^google-oauth-[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+// validateKey ensures the key is in the allowlist or matches a valid pattern.
 // Returns an error if the key is invalid or not allowed.
+//
+// Valid keys are:
+//   - Keys in the explicit allowlist (e.g., "slack-token")
+//   - Google OAuth keys matching google-oauth-{email} pattern
 func validateKey(key string) error {
-	if _, ok := allowedKeychainKeys[key]; !ok {
-		return fmt.Errorf("keychain: key %q not in allowlist", key)
+	// Check explicit allowlist first
+	if _, ok := allowedKeychainKeys[key]; ok {
+		if !keyPattern.MatchString(key) {
+			return fmt.Errorf("keychain: key %q contains invalid characters", key)
+		}
+		return nil
 	}
-	if !keyPattern.MatchString(key) {
-		return fmt.Errorf("keychain: key %q contains invalid characters", key)
+
+	// Check google-oauth-{email} pattern
+	if googleOAuthKeyPattern.MatchString(key) {
+		return nil
 	}
-	return nil
+
+	return fmt.Errorf("keychain: key %q not in allowlist", key)
 }

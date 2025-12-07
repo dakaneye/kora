@@ -70,8 +70,9 @@ func (k *MacOSKeychain) Get(ctx context.Context, key string) (string, error) {
 // Set stores a credential value in the keychain.
 // Overwrites any existing value for the same key.
 //
-// SECURITY: Password is passed via stdin, not command-line args.
-// Command-line args are visible to other processes via `ps`.
+// Note: The password is passed as a command-line argument to the security CLI.
+// This is briefly visible via `ps` but the macOS security command doesn't support
+// reading passwords from stdin for add-generic-password.
 func (k *MacOSKeychain) Set(ctx context.Context, key, value string) error {
 	if err := validateKey(key); err != nil {
 		return err
@@ -84,34 +85,16 @@ func (k *MacOSKeychain) Set(ctx context.Context, key, value string) error {
 	//nolint:errcheck // intentionally ignoring error - entry may not exist
 	_ = k.Delete(ctx, key) // #nosec G104
 
-	// SECURITY: Create the entry, passing password via stdin.
-	// The -w flag without a value tells security to read from stdin.
+	// Create the entry with password.
 	// #nosec G204 -- securityPath is controlled, key is validated via allowlist
 	cmd := exec.CommandContext(ctx, k.securityPath,
 		"add-generic-password",
 		"-s", keychainServiceName,
 		"-a", key,
-		"-w", // read password from stdin
+		"-w", value,
 	)
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("keychain set %q: failed to create stdin pipe: %w", key, err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("keychain set %q: failed to start: %w", key, err)
-	}
-
-	// Write password and close stdin
-	if _, err := stdin.Write([]byte(value)); err != nil {
-		return fmt.Errorf("keychain set %q: failed to write to stdin: %w", key, err)
-	}
-	if err := stdin.Close(); err != nil {
-		return fmt.Errorf("keychain set %q: failed to close stdin: %w", key, err)
-	}
-
-	if err := cmd.Wait(); err != nil {
+	if err := cmd.Run(); err != nil {
 		return k.handleExecError(err, "set", key)
 	}
 	return nil

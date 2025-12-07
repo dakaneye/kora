@@ -24,4 +24,13 @@ var (
 
 	// ErrGHCLINotAuthenticated indicates gh CLI has no active session.
 	ErrGHCLINotAuthenticated = errors.New("gh CLI not authenticated")
+
+	// ErrOAuthFlowFailed indicates the OAuth browser flow failed.
+	ErrOAuthFlowFailed = errors.New("oauth flow failed")
+
+	// ErrTokenRefreshFailed indicates token refresh failed.
+	ErrTokenRefreshFailed = errors.New("token refresh failed")
+
+	// ErrOAuthConfigMissing indicates OAuth client credentials are not configured.
+	ErrOAuthConfigMissing = errors.New("oauth client credentials not configured")
 )

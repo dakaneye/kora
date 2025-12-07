@@ -10,9 +10,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dakaneye/kora/internal/auth/github"
+	"github.com/dakaneye/kora/internal/auth/google"
+	"github.com/dakaneye/kora/internal/auth/keychain"
 	"github.com/dakaneye/kora/internal/config"
 	"github.com/dakaneye/kora/internal/datasources"
 	githubds "github.com/dakaneye/kora/internal/datasources/github"
+	"github.com/dakaneye/kora/internal/datasources/gmail"
+	"github.com/dakaneye/kora/internal/datasources/google_calendar"
 	"github.com/dakaneye/kora/internal/output"
 )
 
@@ -206,6 +210,63 @@ func initDatasources(ctx context.Context, cfg *config.Config) (sources []datasou
 				sources = append(sources, ghDS)
 			}
 		}
+	}
+
+	// Create auth providers for unique Google emails (shared between calendar and gmail)
+	// Each email needs one OAuth credential, shared across Calendar and Gmail datasources
+	kc := keychain.NewMacOSKeychain("")
+	googleProviders := make(map[string]*google.GoogleAuthProvider)
+	for _, email := range cfg.UniqueGoogleEmails() {
+		provider, err := google.NewGoogleAuthProvider(kc, email)
+		if err != nil {
+			initErrors[fmt.Sprintf("google:%s", email)] = fmt.Errorf("auth provider init failed: %w", err)
+			continue
+		}
+		googleProviders[email] = provider
+	}
+
+	// Initialize Google Calendar datasources
+	for _, calCfg := range cfg.Datasources.Google.Calendars {
+		provider, ok := googleProviders[calCfg.Email]
+		if !ok {
+			// Auth provider failed earlier, already logged
+			continue
+		}
+		if err := provider.Authenticate(ctx); err != nil {
+			initErrors[fmt.Sprintf("google-calendar:%s", calCfg.Email)] = fmt.Errorf("auth failed: %w", err)
+			continue
+		}
+		calID := calCfg.CalendarID
+		if calID == "" {
+			calID = "primary"
+		}
+		ds, err := google_calendar.NewGoogleCalendarDataSource(provider,
+			google_calendar.WithCalendarIDs([]string{calID}))
+		if err != nil {
+			initErrors[fmt.Sprintf("google-calendar:%s", calCfg.Email)] = fmt.Errorf("init failed: %w", err)
+			continue
+		}
+		sources = append(sources, ds)
+	}
+
+	// Initialize Gmail datasources
+	for _, gmailCfg := range cfg.Datasources.Google.Gmail {
+		provider, ok := googleProviders[gmailCfg.Email]
+		if !ok {
+			// Auth provider failed earlier, already logged
+			continue
+		}
+		if err := provider.Authenticate(ctx); err != nil {
+			initErrors[fmt.Sprintf("gmail:%s", gmailCfg.Email)] = fmt.Errorf("auth failed: %w", err)
+			continue
+		}
+		ds, err := gmail.NewGmailDataSource(provider,
+			gmail.WithImportantSenders(gmailCfg.ImportantSenders))
+		if err != nil {
+			initErrors[fmt.Sprintf("gmail:%s", gmailCfg.Email)] = fmt.Errorf("init failed: %w", err)
+			continue
+		}
+		sources = append(sources, ds)
 	}
 
 	return sources, initErrors

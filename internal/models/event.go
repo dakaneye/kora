@@ -66,9 +66,38 @@ const (
 	EventTypeIssueAssigned EventType = "issue_assigned"
 )
 
+// EventType constants for Google Calendar events.
+// EFA 0001: Do NOT add types here without updating the EFA.
+const (
+	// EventTypeCalendarUpcoming indicates a meeting starts within 1 hour.
+	EventTypeCalendarUpcoming EventType = "calendar_upcoming"
+	// EventTypeCalendarNeedsRSVP indicates no response yet from user.
+	EventTypeCalendarNeedsRSVP EventType = "calendar_needs_rsvp"
+	// EventTypeCalendarOrganizerPending indicates user is organizing and awaiting RSVPs.
+	EventTypeCalendarOrganizerPending EventType = "calendar_organizer_pending"
+	// EventTypeCalendarTentative indicates user marked tentative.
+	EventTypeCalendarTentative EventType = "calendar_tentative"
+	// EventTypeCalendarMeeting indicates an accepted meeting.
+	EventTypeCalendarMeeting EventType = "calendar_meeting"
+	// EventTypeCalendarAllDay indicates an all-day event.
+	EventTypeCalendarAllDay EventType = "calendar_all_day"
+)
+
+// EventType constants for Gmail events.
+// EFA 0001: Do NOT add types here without updating the EFA.
+const (
+	// EventTypeEmailImportant indicates important sender or Gmail-marked important.
+	EventTypeEmailImportant EventType = "email_important"
+	// EventTypeEmailDirect indicates user in To: field, unread.
+	EventTypeEmailDirect EventType = "email_direct"
+	// EventTypeEmailCC indicates user in CC: field.
+	EventTypeEmailCC EventType = "email_cc"
+)
+
 // validEventTypes is the authoritative set of valid event types.
 // EFA 0001: Do NOT add types here without updating the EFA.
 var validEventTypes = map[EventType]struct{}{
+	// GitHub event types
 	EventTypePRReview:         {},
 	EventTypePRMention:        {},
 	EventTypePRAuthor:         {},
@@ -77,6 +106,17 @@ var validEventTypes = map[EventType]struct{}{
 	EventTypePRCommentMention: {},
 	EventTypeIssueMention:     {},
 	EventTypeIssueAssigned:    {},
+	// Google Calendar event types
+	EventTypeCalendarUpcoming:         {},
+	EventTypeCalendarNeedsRSVP:        {},
+	EventTypeCalendarOrganizerPending: {},
+	EventTypeCalendarTentative:        {},
+	EventTypeCalendarMeeting:          {},
+	EventTypeCalendarAllDay:           {},
+	// Gmail event types
+	EventTypeEmailImportant: {},
+	EventTypeEmailDirect:    {},
+	EventTypeEmailCC:        {},
 }
 
 // IsValid reports whether t is a defined EventType constant.
@@ -90,15 +130,22 @@ func (t EventType) IsValid() bool {
 type Source string
 
 // Source constants for supported datasources.
+// EFA 0001: Do NOT add sources here without updating the EFA.
 const (
 	// SourceGitHub indicates the event came from GitHub.
 	SourceGitHub Source = "github"
+	// SourceGoogleCalendar indicates the event came from Google Calendar.
+	SourceGoogleCalendar Source = "google_calendar"
+	// SourceGmail indicates the event came from Gmail.
+	SourceGmail Source = "gmail"
 )
 
 // validSources is the authoritative set of valid sources.
 // EFA 0001: Do NOT add sources here without updating the EFA.
 var validSources = map[Source]struct{}{
-	SourceGitHub: {},
+	SourceGitHub:         {},
+	SourceGoogleCalendar: {},
+	SourceGmail:          {},
 }
 
 // IsValid reports whether s is a defined Source constant.

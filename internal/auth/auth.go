@@ -16,6 +16,8 @@ type Service string
 const (
 	// ServiceGitHub identifies the GitHub authentication service.
 	ServiceGitHub Service = "github"
+	// ServiceGoogle identifies the Google authentication service.
+	ServiceGoogle Service = "google"
 )
 
 // AuthProvider manages authentication for a specific service.

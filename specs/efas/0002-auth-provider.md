@@ -21,10 +21,10 @@ Authentication is security-critical. Without a strict interface definition, Clau
 - Credentials never stored in plaintext
 - Credentials never logged (even partially)
 - macOS Keychain as primary credential store
+- Support OAuth 2.0 flows with automatic token refresh
 
 **Non-goals:**
 - Cross-platform support (macOS only in v1)
-- OAuth flows (use existing CLI tools)
 - Credential rotation automation
 
 ## Detailed Design
@@ -39,11 +39,16 @@ Authentication is security-critical. Without a strict interface definition, Clau
 │    - Most secure: no credential storage                     │
 │    - Kora never sees the token                              │
 ├─────────────────────────────────────────────────────────────┤
-│ 2. macOS Keychain (Slack token)                             │
+│ 2. OAuth 2.0 Flow (Google via browser)                      │
+│    - Authorization Code flow with localhost callback        │
+│    - Tokens in keychain with automatic refresh              │
+│    - Kora bundles OAuth client credentials                  │
+├─────────────────────────────────────────────────────────────┤
+│ 3. macOS Keychain (Slack token)                             │
 │    - OS-managed encryption                                  │
 │    - Requires user password to access                       │
 ├─────────────────────────────────────────────────────────────┤
-│ 3. Environment Variable (fallback)                          │
+│ 4. Environment Variable (fallback)                          │
 │    - For CI/CD or when keychain unavailable                 │
 │    - Last resort only                                       │
 └─────────────────────────────────────────────────────────────┘
@@ -69,10 +74,11 @@ type Service string
 const (
 	ServiceGitHub Service = "github"
 	ServiceSlack  Service = "slack"
+	ServiceGoogle Service = "google"
 )
 
 // AuthProvider manages authentication for a specific service.
-// Each service (GitHub, Slack) has exactly one AuthProvider implementation.
+// Each service (GitHub, Slack, Google) has exactly one AuthProvider implementation.
 //
 // Implementations must:
 //   - Never log or expose credential values
@@ -116,6 +122,12 @@ var (
 
 	// ErrGHCLINotAuthenticated indicates gh CLI has no active session.
 	ErrGHCLINotAuthenticated = errors.New("gh CLI not authenticated")
+
+	// ErrOAuthFlowFailed indicates the OAuth browser flow failed.
+	ErrOAuthFlowFailed = errors.New("oauth flow failed")
+
+	// ErrTokenRefreshFailed indicates token refresh failed.
+	ErrTokenRefreshFailed = errors.New("token refresh failed")
 )
 ```
 
@@ -147,7 +159,7 @@ type Credential interface {
 type CredentialType string
 
 const (
-	CredentialTypeOAuth CredentialType = "oauth"  // OAuth token (GitHub)
+	CredentialTypeOAuth CredentialType = "oauth"  // OAuth token (GitHub, Google)
 	CredentialTypeToken CredentialType = "token"  // API token (Slack xoxp-*)
 )
 ```
@@ -313,6 +325,78 @@ func (c *GitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint str
 }
 ```
 
+#### GoogleOAuthCredential
+
+```go
+// GoogleOAuthCredential represents Google OAuth 2.0 tokens.
+// IT IS FORBIDDEN TO CHANGE THIS TYPE without updating EFA 0002.
+//
+// SECURITY: This credential stores OAuth tokens obtained via browser-based
+// Authorization Code flow. Tokens are encrypted in macOS Keychain and
+// automatically refreshed before expiry.
+type GoogleOAuthCredential struct {
+	accessToken  string
+	refreshToken string
+	expiry       time.Time
+	email        string
+}
+
+// NewGoogleOAuthCredential creates a Google OAuth credential.
+// Returns ErrCredentialInvalid if required fields are missing.
+func NewGoogleOAuthCredential(accessToken, refreshToken, email string, expiry time.Time) (*GoogleOAuthCredential, error) {
+	c := &GoogleOAuthCredential{
+		accessToken:  accessToken,
+		refreshToken: refreshToken,
+		expiry:       expiry,
+		email:        email,
+	}
+	if !c.IsValid() {
+		return nil, fmt.Errorf("%w: access_token, refresh_token, and email are required", ErrCredentialInvalid)
+	}
+	return c, nil
+}
+
+func (c *GoogleOAuthCredential) Type() CredentialType { return CredentialTypeOAuth }
+
+// Value returns the access token.
+// WARNING: This value MUST NEVER be logged. Use Redacted() instead.
+func (c *GoogleOAuthCredential) Value() string { return c.accessToken }
+
+// Redacted returns a safe-to-log representation.
+// Format: "google:{email}:[fingerprint]"
+// SECURITY: Shows only the email and a token fingerprint for correlation.
+func (c *GoogleOAuthCredential) Redacted() string {
+	h := sha256.Sum256([]byte(c.accessToken))
+	fingerprint := hex.EncodeToString(h[:4])
+	return fmt.Sprintf("google:%s:[%s]", c.email, fingerprint)
+}
+
+// IsValid checks if all required fields are present.
+// Does NOT verify the token works with Google APIs.
+func (c *GoogleOAuthCredential) IsValid() bool {
+	return c.accessToken != "" && c.refreshToken != "" && c.email != ""
+}
+
+// IsExpired returns true if the access token is expired or expires within 5 minutes.
+// The 5-minute buffer ensures we refresh before the token becomes unusable.
+func (c *GoogleOAuthCredential) IsExpired() bool {
+	return time.Now().After(c.expiry.Add(-5 * time.Minute))
+}
+
+// Email returns the Google account email this credential is for.
+func (c *GoogleOAuthCredential) Email() string { return c.email }
+
+// RefreshToken returns the refresh token for obtaining new access tokens.
+// WARNING: This value MUST NEVER be logged.
+func (c *GoogleOAuthCredential) RefreshToken() string { return c.refreshToken }
+
+// Expiry returns when the access token expires.
+func (c *GoogleOAuthCredential) Expiry() time.Time { return c.expiry }
+
+// String implements fmt.Stringer with redaction for safety.
+func (c *GoogleOAuthCredential) String() string { return c.Redacted() }
+```
+
 ### Provider Implementations
 
 #### GitHubAuthProvider
@@ -473,6 +557,358 @@ func (p *SlackAuthProvider) IsAuthenticated(ctx context.Context) bool {
 }
 ```
 
+#### GoogleAuthProvider
+
+```go
+// GoogleAuthProvider implements auth.AuthProvider for Google via OAuth 2.0.
+// IT IS FORBIDDEN TO CHANGE THIS IMPLEMENTATION without updating EFA 0002.
+//
+// SECURITY: This provider manages OAuth 2.0 Authorization Code flow:
+//   - Opens browser for user consent
+//   - Localhost callback server (port 8765) receives auth code
+//   - Exchanges code for access + refresh tokens
+//   - Stores tokens in macOS Keychain per email address
+//   - Automatically refreshes tokens before expiry
+//
+// OAuth Flow:
+//   1. User triggers auth for email (e.g., work@company.com)
+//   2. Browser opens Google consent screen
+//   3. User approves scopes (calendar.readonly, gmail.readonly)
+//   4. Redirect to localhost:8765/callback?code=AUTH_CODE&state=CSRF_TOKEN
+//   5. Exchange code for tokens via Google token endpoint
+//   6. Store in keychain: google-oauth-{email}
+//
+// Token Refresh:
+//   - Before each API call, check expiry (IsExpired checks 5min buffer)
+//   - If expired, use refresh token to get new access token
+//   - Update keychain with new tokens
+type GoogleAuthProvider struct {
+	keychain     Keychain
+	email        string
+	clientID     string
+	clientSecret string
+	redirectURL  string // default: "http://localhost:8765/callback"
+	callbackPort int    // default: 8765
+}
+
+const (
+	// googleOAuthKeychainKeyPrefix is the prefix for Google OAuth keychain keys.
+	// Format: google-oauth-{email}
+	googleOAuthKeychainKeyPrefix = "google-oauth-"
+
+	// Google OAuth endpoints
+	googleAuthURL  = "https://accounts.google.com/o/oauth2/auth"
+	googleTokenURL = "https://oauth2.googleapis.com/token"
+
+	// Scopes for Google Calendar and Gmail read-only access
+	googleOAuthScopes = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly"
+)
+
+// NewGoogleAuthProvider creates a Google auth provider for the given email.
+// clientID and clientSecret are bundled in Kora's build.
+// If redirectURL is empty, defaults to "http://localhost:8765/callback".
+func NewGoogleAuthProvider(keychain Keychain, email, clientID, clientSecret, redirectURL string, callbackPort int) *GoogleAuthProvider {
+	if redirectURL == "" {
+		redirectURL = "http://localhost:8765/callback"
+	}
+	if callbackPort == 0 {
+		callbackPort = 8765
+	}
+	return &GoogleAuthProvider{
+		keychain:     keychain,
+		email:        email,
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		redirectURL:  redirectURL,
+		callbackPort: callbackPort,
+	}
+}
+
+func (p *GoogleAuthProvider) Service() Service { return ServiceGoogle }
+
+func (p *GoogleAuthProvider) Authenticate(ctx context.Context) error {
+	// Check if we have a valid credential
+	cred, err := p.GetCredential(ctx)
+	if err != nil {
+		// No credential found or error - trigger OAuth flow
+		return p.triggerOAuthFlow(ctx)
+	}
+
+	// Check if token is expired
+	googleCred, ok := cred.(*GoogleOAuthCredential)
+	if !ok {
+		return fmt.Errorf("google auth: invalid credential type: %T", cred)
+	}
+
+	if googleCred.IsExpired() {
+		// Token expired - refresh it
+		return p.refreshToken(ctx, googleCred)
+	}
+
+	return nil
+}
+
+func (p *GoogleAuthProvider) GetCredential(ctx context.Context) (Credential, error) {
+	// Get credential from keychain
+	key := googleOAuthKeychainKeyPrefix + p.email
+	data, err := p.keychain.Get(ctx, key)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("google auth: %w: run auth flow for %s", ErrNotAuthenticated, p.email)
+		}
+		return nil, fmt.Errorf("google auth: keychain access failed: %w", err)
+	}
+
+	// Parse JSON credential
+	var tokenData struct {
+		AccessToken  string    `json:"access_token"`
+		RefreshToken string    `json:"refresh_token"`
+		Expiry       time.Time `json:"expiry"`
+		Email        string    `json:"email"`
+	}
+	if err := json.Unmarshal([]byte(data), &tokenData); err != nil {
+		return nil, fmt.Errorf("google auth: invalid keychain data: %w", err)
+	}
+
+	cred, err := NewGoogleOAuthCredential(
+		tokenData.AccessToken,
+		tokenData.RefreshToken,
+		tokenData.Email,
+		tokenData.Expiry,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("google auth: %w", err)
+	}
+
+	// Check if expired and refresh if needed
+	if cred.IsExpired() {
+		if err := p.refreshToken(ctx, cred); err != nil {
+			return nil, err
+		}
+		// Get updated credential from keychain
+		return p.GetCredential(ctx)
+	}
+
+	return cred, nil
+}
+
+func (p *GoogleAuthProvider) IsAuthenticated(ctx context.Context) bool {
+	return p.Authenticate(ctx) == nil
+}
+
+// triggerOAuthFlow starts the browser-based OAuth flow.
+// Opens browser, starts callback server, waits for auth code, exchanges for tokens.
+func (p *GoogleAuthProvider) triggerOAuthFlow(ctx context.Context) error {
+	// Generate CSRF state token
+	stateBytes := make([]byte, 32)
+	if _, err := rand.Read(stateBytes); err != nil {
+		return fmt.Errorf("google auth: failed to generate state token: %w", err)
+	}
+	state := base64.URLEncoding.EncodeToString(stateBytes)
+
+	// Build authorization URL
+	authURL := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&state=%s&access_type=offline&prompt=consent",
+		googleAuthURL,
+		url.QueryEscape(p.clientID),
+		url.QueryEscape(p.redirectURL),
+		url.QueryEscape(googleOAuthScopes),
+		url.QueryEscape(state),
+	)
+
+	// Start callback server
+	authCodeChan := make(chan string, 1)
+	errChan := make(chan error, 1)
+	server := &http.Server{Addr: fmt.Sprintf(":%d", p.callbackPort)}
+
+	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		// Validate CSRF state
+		if r.URL.Query().Get("state") != state {
+			errChan <- fmt.Errorf("google auth: CSRF state mismatch")
+			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+			return
+		}
+
+		// Get authorization code
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			errChan <- fmt.Errorf("google auth: no authorization code received")
+			http.Error(w, "No authorization code", http.StatusBadRequest)
+			return
+		}
+
+		// Send success response to browser
+		fmt.Fprintf(w, "<html><body><h1>Authentication successful!</h1><p>You can close this window and return to Kora.</p></body></html>")
+
+		authCodeChan <- code
+	})
+
+	// Start server in background
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errChan <- fmt.Errorf("google auth: callback server failed: %w", err)
+		}
+	}()
+
+	// Open browser
+	log.Info("Opening browser for Google authentication", "email", p.email)
+	if err := openBrowser(authURL); err != nil {
+		server.Shutdown(ctx)
+		return fmt.Errorf("google auth: failed to open browser: %w", err)
+	}
+
+	// Wait for auth code or error
+	var authCode string
+	select {
+	case authCode = <-authCodeChan:
+		// Success - shutdown server
+		server.Shutdown(ctx)
+	case err := <-errChan:
+		server.Shutdown(ctx)
+		return err
+	case <-ctx.Done():
+		server.Shutdown(ctx)
+		return fmt.Errorf("google auth: %w: context cancelled", ErrOAuthFlowFailed)
+	case <-time.After(5 * time.Minute):
+		server.Shutdown(ctx)
+		return fmt.Errorf("google auth: %w: timeout waiting for user consent", ErrOAuthFlowFailed)
+	}
+
+	// Exchange auth code for tokens
+	return p.exchangeCodeForTokens(ctx, authCode)
+}
+
+// exchangeCodeForTokens exchanges an authorization code for access and refresh tokens.
+func (p *GoogleAuthProvider) exchangeCodeForTokens(ctx context.Context, code string) error {
+	// Build token request
+	data := url.Values{
+		"client_id":     {p.clientID},
+		"client_secret": {p.clientSecret},
+		"code":          {code},
+		"redirect_uri":  {p.redirectURL},
+		"grant_type":    {"authorization_code"},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", googleTokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return fmt.Errorf("google auth: failed to create token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// Make request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("google auth: token exchange failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("google auth: token exchange failed: %d %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		TokenType    string `json:"token_type"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return fmt.Errorf("google auth: failed to parse token response: %w", err)
+	}
+
+	// Store tokens in keychain
+	expiry := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	return p.storeTokens(ctx, tokenResp.AccessToken, tokenResp.RefreshToken, expiry)
+}
+
+// refreshToken uses the refresh token to get a new access token.
+func (p *GoogleAuthProvider) refreshToken(ctx context.Context, cred *GoogleOAuthCredential) error {
+	// Build refresh request
+	data := url.Values{
+		"client_id":     {p.clientID},
+		"client_secret": {p.clientSecret},
+		"refresh_token": {cred.RefreshToken()},
+		"grant_type":    {"refresh_token"},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", googleTokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return fmt.Errorf("google auth: failed to create refresh request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// Make request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("google auth: %w: %v", ErrTokenRefreshFailed, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("google auth: %w: %d %s", ErrTokenRefreshFailed, resp.StatusCode, string(body))
+	}
+
+	// Parse response
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+		TokenType   string `json:"token_type"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return fmt.Errorf("google auth: failed to parse refresh response: %w", err)
+	}
+
+	// Store updated tokens (refresh token remains the same)
+	expiry := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	log.Debug("refreshed Google OAuth token", "email", p.email, "expires_in", tokenResp.ExpiresIn)
+	return p.storeTokens(ctx, tokenResp.AccessToken, cred.RefreshToken(), expiry)
+}
+
+// storeTokens saves OAuth tokens to keychain.
+func (p *GoogleAuthProvider) storeTokens(ctx context.Context, accessToken, refreshToken string, expiry time.Time) error {
+	tokenData := map[string]interface{}{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"expiry":        expiry,
+		"email":         p.email,
+	}
+
+	data, err := json.Marshal(tokenData)
+	if err != nil {
+		return fmt.Errorf("google auth: failed to marshal token data: %w", err)
+	}
+
+	key := googleOAuthKeychainKeyPrefix + p.email
+	if err := p.keychain.Set(ctx, key, string(data)); err != nil {
+		return fmt.Errorf("google auth: failed to store tokens in keychain: %w", err)
+	}
+
+	log.Debug("stored Google OAuth tokens in keychain", "email", p.email)
+	return nil
+}
+
+// openBrowser opens the default browser to the given URL.
+// Works on macOS, Linux, and Windows.
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+	return cmd.Start()
+}
+```
+
 ### macOS Keychain Implementation
 
 ```go
@@ -490,25 +926,36 @@ const keychainServiceName = "kora"
 // IT IS FORBIDDEN TO ADD KEYS without updating this allowlist.
 var allowedKeychainKeys = map[string]struct{}{
 	"slack-token": {},
-	// Add new keys here as needed, e.g.:
-	// "linear-token": {},
-	// "notion-token": {},
+	// Google OAuth keys use pattern: google-oauth-{email}
+	// Validated separately by googleOAuthKeyPattern
 }
 
 // keyPattern validates keychain key format.
-// Only alphanumeric characters and hyphens are allowed.
-var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
+// Only alphanumeric characters, hyphens, @ and dots are allowed.
+var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9@.-]*[a-z0-9]$`)
 
-// validateKey ensures the key is in the allowlist and matches the safe pattern.
+// googleOAuthKeyPattern validates google-oauth-{email} format.
+var googleOAuthKeyPattern = regexp.MustCompile(`^google-oauth-[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+// validateKey ensures the key is in the allowlist or matches a valid pattern.
 // Returns an error if the key is invalid or not allowed.
 func validateKey(key string) error {
-	if _, ok := allowedKeychainKeys[key]; !ok {
-		return fmt.Errorf("keychain: key %q not in allowlist", key)
+	// Check explicit allowlist first
+	if _, ok := allowedKeychainKeys[key]; ok {
+		return nil
 	}
+
+	// Check google-oauth-{email} pattern
+	if googleOAuthKeyPattern.MatchString(key) {
+		return nil
+	}
+
+	// Check general pattern as fallback
 	if !keyPattern.MatchString(key) {
 		return fmt.Errorf("keychain: key %q contains invalid characters", key)
 	}
-	return nil
+
+	return fmt.Errorf("keychain: key %q not in allowlist", key)
 }
 
 // NewMacOSKeychain creates a keychain backed by the macOS security CLI.
@@ -694,6 +1141,7 @@ fmt.Printf("Token: %s\n", token.Value())     // STOP. Exposing value.
 ```go
 // Keychain storage
 keychain.Set(ctx, "slack-token", token)
+keychain.Set(ctx, "google-oauth-user@gmail.com", tokenJSON)
 
 // gh CLI delegation (no storage)
 cmd := exec.Command("gh", "auth", "token")
@@ -704,17 +1152,28 @@ cmd := exec.Command("gh", "auth", "token")
 os.WriteFile("token.txt", []byte(token), 0644)      // STOP. Plaintext file.
 os.WriteFile(".kora/credentials", token, 0600)      // STOP. Still plaintext.
 viper.Set("github.token", token)                    // STOP. Config file storage.
+os.WriteFile("google-creds.json", tokenData, 0600)  // STOP. Plaintext OAuth tokens.
 ```
 
-### Rule 4: ALWAYS Prefer CLI Delegation
+### Rule 4: ALWAYS Prefer CLI Delegation or OAuth Flow
 
 For services with existing CLIs (GitHub → `gh`), delegate authentication entirely.
+For services with OAuth (Google), use browser-based Authorization Code flow with keychain storage.
 
 **CORRECT:**
 ```go
 // GitHub: Use gh CLI - Kora never stores GitHub tokens
 func (g *GitHubProvider) GetToken(ctx context.Context) (string, error) {
     return execGhAuthToken(ctx)  // Delegate to gh
+}
+
+// Google: Use OAuth flow - Kora stores tokens in keychain with refresh
+func (g *GoogleProvider) Authenticate(ctx context.Context) error {
+    cred, err := g.GetCredential(ctx)
+    if err != nil || cred.IsExpired() {
+        return g.triggerOAuthFlow(ctx)  // Browser-based consent
+    }
+    return nil
 }
 ```
 
@@ -724,9 +1183,116 @@ func (g *GitHubProvider) GetToken(ctx context.Context) (string, error) {
 func (g *GitHubProvider) SaveToken(token string) error {
     return g.keychain.Save("github", token)  // STOP. Use gh CLI.
 }
+
+// DO NOT store OAuth tokens in files
+func (g *GoogleProvider) SaveToken(token string) error {
+    return os.WriteFile("token.json", []byte(token), 0600)  // STOP. Use keychain.
+}
 ```
 
-### Rule 5: Secure Error Handling
+### Rule 5: NEVER Log OAuth Tokens or Refresh Tokens
+
+OAuth credentials have additional security requirements:
+
+**CORRECT:**
+```go
+log.Debug("Google OAuth token refreshed", "email", cred.Email(), "expires_in", expiresIn)
+log.Info("authenticated with Google", "credential", cred.Redacted())
+```
+
+**FORBIDDEN:**
+```go
+log.Debug("access token", "token", accessToken)           // STOP. Logging token.
+log.Debug("refresh token", "token", refreshToken)         // STOP. Logging refresh token.
+log.Debug("token response", "data", tokenResponse)        // STOP. Contains tokens.
+fmt.Printf("OAuth credentials: %+v\n", oauthCreds)       // STOP. Contains tokens.
+```
+
+### Rule 6: ALWAYS Validate CSRF State in OAuth Callbacks
+
+**CORRECT:**
+```go
+http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+    // SECURITY: Validate CSRF state token
+    if r.URL.Query().Get("state") != expectedState {
+        http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+        return
+    }
+    // Continue with auth code exchange
+})
+```
+
+**FORBIDDEN:**
+```go
+http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+    // STOP. No CSRF validation - security vulnerability.
+    code := r.URL.Query().Get("code")
+    // Exchange code for tokens...
+})
+```
+
+### Rule 7: ALWAYS Check Token Expiry Before API Calls
+
+**CORRECT:**
+```go
+func (c *GoogleClient) FetchCalendar(ctx context.Context) ([]Event, error) {
+    // SECURITY: Check expiry and refresh if needed
+    if c.credential.IsExpired() {
+        if err := c.provider.Authenticate(ctx); err != nil {
+            return nil, err
+        }
+        c.credential, _ = c.provider.GetCredential(ctx)
+    }
+    // Make API call with fresh token
+    return c.fetchWithToken(ctx, c.credential.Value())
+}
+```
+
+**FORBIDDEN:**
+```go
+func (c *GoogleClient) FetchCalendar(ctx context.Context) ([]Event, error) {
+    // STOP. No expiry check - will fail with expired token.
+    return c.fetchWithToken(ctx, c.credential.Value())
+}
+```
+
+### Rule 8: NEVER Store OAuth Client Secret in Code
+
+**CORRECT:**
+```go
+// Load from environment variable
+clientSecret := os.Getenv("KORA_GOOGLE_CLIENT_SECRET")
+if clientSecret == "" {
+    return errors.New("KORA_GOOGLE_CLIENT_SECRET not set")
+}
+```
+
+**FORBIDDEN:**
+```go
+// STOP. Hardcoded client secret.
+const googleClientSecret = "GOCSPX-abc123..."
+
+// STOP. Client secret in code.
+clientSecret := "my-secret-value"
+```
+
+### Rule 9: ALWAYS Use HTTPS for Token Exchange
+
+**CORRECT:**
+```go
+const googleTokenURL = "https://oauth2.googleapis.com/token"
+
+// All OAuth endpoints use HTTPS
+req, err := http.NewRequestWithContext(ctx, "POST", googleTokenURL, body)
+```
+
+**FORBIDDEN:**
+```go
+// STOP. Using HTTP for OAuth token exchange - major security vulnerability.
+const googleTokenURL = "http://oauth2.googleapis.com/token"
+```
+
+### Rule 10: Secure Error Handling
 
 Errors MUST NOT contain credential values.
 
@@ -734,12 +1300,14 @@ Errors MUST NOT contain credential values.
 ```go
 return fmt.Errorf("getting token from keychain: %w", err)
 return errors.New("token validation failed")
+return fmt.Errorf("OAuth flow failed for %s", email)
 ```
 
 **FORBIDDEN:**
 ```go
-return fmt.Errorf("invalid token: %s", token)       // STOP.
-return fmt.Errorf("token %s expired", token[:10])  // STOP.
+return fmt.Errorf("invalid token: %s", token)              // STOP.
+return fmt.Errorf("token %s expired", token[:10])          // STOP.
+return fmt.Errorf("OAuth failed: %+v", oauthResponse)      // STOP. Contains tokens.
 ```
 
 ### Stop and Ask Triggers
@@ -748,9 +1316,12 @@ return fmt.Errorf("token %s expired", token[:10])  // STOP.
 
 1. **User asks to log credentials for debugging**: Refuse. Offer alternatives (length, type, redacted).
 2. **Credential storage without Keychain/CLI**: Ask about proper storage approach.
-3. **New auth provider needed**: Ask about CLI delegation options first.
+3. **New auth provider needed**: Ask about CLI delegation or OAuth flow options first.
 4. **Third-party library logs credentials**: Propose wrapping or alternative.
 5. **Tests need real credentials**: Propose environment variables or mocks.
+6. **OAuth flow without CSRF validation**: Stop and add CSRF token validation.
+7. **Storing OAuth client secret in code**: Stop and use environment variable.
+8. **HTTP instead of HTTPS for OAuth**: Stop and fix to HTTPS.
 
 ### Code Protection Comments
 
@@ -766,6 +1337,11 @@ type Token struct {
 // SECURITY: The returned token MUST NOT be logged, printed, or
 // included in error messages. See EFA 0002 for requirements.
 func (p *Provider) GetToken(ctx context.Context) (string, error)
+
+// SECURITY: CSRF state validation is REQUIRED. See EFA 0002.
+http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+    // Validate state parameter...
+})
 ```
 
 ### Security Audit Checklist
@@ -777,7 +1353,12 @@ Before merging auth code:
 - [ ] String() methods return Redacted()
 - [ ] No plaintext file storage
 - [ ] CLI delegation used where available
-- [ ] Keychain used for stored credentials
+- [ ] OAuth flow uses keychain storage
+- [ ] OAuth callback validates CSRF state
+- [ ] OAuth client secret from environment variable
+- [ ] All OAuth endpoints use HTTPS
+- [ ] Token expiry checked before API calls
+- [ ] Automatic token refresh implemented
 - [ ] Integration tests don't commit credentials
 
 ## Implications for Cross-cutting Concerns
@@ -794,12 +1375,19 @@ Before merging auth code:
 | Credential in error messages | Never include value in errors |
 | Process memory scraping | Minimize credential lifetime |
 | Shell history exposure | Use Keychain, not CLI args |
+| OAuth token exposure | Keychain storage, HTTPS only |
+| CSRF in OAuth callback | State token validation |
+| Expired OAuth tokens | Automatic refresh with 5min buffer |
+| OAuth client secret exposure | Environment variable, never in code |
+| Man-in-the-middle on OAuth | HTTPS required for all OAuth endpoints |
+| Refresh token theft | Keychain storage, never logged |
 
 ### Testing Implications
 
 1. **Mock Keychain** for unit tests - never call real `security` command
 2. **Mock CommandExecuter** for `gh` CLI tests
-3. **Integration tests** tagged `//go:build integration`
+3. **Mock OAuth HTTP responses** for Google auth tests
+4. **Integration tests** tagged `//go:build integration`
 
 ```go
 // MockKeychain for testing
@@ -813,9 +1401,20 @@ func (m *MockKeychain) Get(ctx context.Context, key string) (string, error) {
 	}
 	return "", ErrNotFound
 }
+
+// MockOAuthServer for testing Google OAuth flow
+type MockOAuthServer struct {
+	server *httptest.Server
+	authCodes map[string]tokenResponse
+}
+
+func NewMockOAuthServer() *MockOAuthServer {
+	// Setup mock OAuth endpoints
+}
 ```
 
 ## Open Questions
 
 1. Should we support credential refresh/rotation hints?
 2. Should we add a `kora auth` subcommand for managing credentials?
+3. Should we support multiple Google OAuth client credentials (user-provided)?

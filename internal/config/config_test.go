@@ -158,3 +158,198 @@ func TestDefaultConfigPath(t *testing.T) {
 		t.Errorf("Expected config.yaml filename, got %s", filepath.Base(path))
 	}
 }
+
+func TestLoad_GoogleConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yaml := `
+datasources:
+  github:
+    enabled: false
+  google:
+    calendars:
+      - email: work@company.com
+        calendar_id: primary
+      - email: personal@gmail.com
+    gmail:
+      - email: work@company.com
+        important_senders:
+          - manager@company.com
+          - "@company.com"
+      - email: personal@gmail.com
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// Verify Google calendars
+	if len(cfg.Datasources.Google.Calendars) != 2 {
+		t.Errorf("Expected 2 calendars, got %d", len(cfg.Datasources.Google.Calendars))
+	}
+	if cfg.Datasources.Google.Calendars[0].Email != "work@company.com" {
+		t.Errorf("Expected work@company.com, got %s", cfg.Datasources.Google.Calendars[0].Email)
+	}
+	if cfg.Datasources.Google.Calendars[0].CalendarID != "primary" {
+		t.Errorf("Expected primary calendar_id, got %s", cfg.Datasources.Google.Calendars[0].CalendarID)
+	}
+
+	// Verify Gmail
+	if len(cfg.Datasources.Google.Gmail) != 2 {
+		t.Errorf("Expected 2 gmail configs, got %d", len(cfg.Datasources.Google.Gmail))
+	}
+	if len(cfg.Datasources.Google.Gmail[0].ImportantSenders) != 2 {
+		t.Errorf("Expected 2 important senders, got %d", len(cfg.Datasources.Google.Gmail[0].ImportantSenders))
+	}
+}
+
+func TestConfig_HasGoogleCalendars(t *testing.T) {
+	//nolint:govet // fieldalignment in tests is not a concern
+	tests := []struct {
+		name string
+		cfg  *Config
+		want bool
+	}{
+		{
+			name: "no calendars",
+			cfg:  DefaultConfig(),
+			want: false,
+		},
+		{
+			name: "with calendars",
+			cfg: &Config{
+				Datasources: DatasourcesConfig{
+					Google: GoogleConfig{
+						Calendars: []CalendarConfig{
+							{Email: "test@example.com"},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.HasGoogleCalendars(); got != tt.want {
+				t.Errorf("HasGoogleCalendars() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfig_HasGmail(t *testing.T) {
+	//nolint:govet // fieldalignment in tests is not a concern
+	tests := []struct {
+		name string
+		cfg  *Config
+		want bool
+	}{
+		{
+			name: "no gmail",
+			cfg:  DefaultConfig(),
+			want: false,
+		},
+		{
+			name: "with gmail",
+			cfg: &Config{
+				Datasources: DatasourcesConfig{
+					Google: GoogleConfig{
+						Gmail: []GmailConfig{
+							{Email: "test@example.com"},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.HasGmail(); got != tt.want {
+				t.Errorf("HasGmail() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfig_UniqueGoogleEmails(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *Config
+		want []string
+	}{
+		{
+			name: "empty config",
+			cfg:  DefaultConfig(),
+			want: nil,
+		},
+		{
+			name: "calendars only",
+			cfg: &Config{
+				Datasources: DatasourcesConfig{
+					Google: GoogleConfig{
+						Calendars: []CalendarConfig{
+							{Email: "a@example.com"},
+							{Email: "b@example.com"},
+						},
+					},
+				},
+			},
+			want: []string{"a@example.com", "b@example.com"},
+		},
+		{
+			name: "gmail only",
+			cfg: &Config{
+				Datasources: DatasourcesConfig{
+					Google: GoogleConfig{
+						Gmail: []GmailConfig{
+							{Email: "c@example.com"},
+						},
+					},
+				},
+			},
+			want: []string{"c@example.com"},
+		},
+		{
+			name: "deduplicated across calendars and gmail",
+			cfg: &Config{
+				Datasources: DatasourcesConfig{
+					Google: GoogleConfig{
+						Calendars: []CalendarConfig{
+							{Email: "shared@example.com"},
+							{Email: "cal-only@example.com"},
+						},
+						Gmail: []GmailConfig{
+							{Email: "shared@example.com"},
+							{Email: "gmail-only@example.com"},
+						},
+					},
+				},
+			},
+			want: []string{"shared@example.com", "cal-only@example.com", "gmail-only@example.com"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.UniqueGoogleEmails()
+			if len(got) != len(tt.want) {
+				t.Errorf("UniqueGoogleEmails() len = %d, want %d", len(got), len(tt.want))
+				return
+			}
+			for i, email := range got {
+				if email != tt.want[i] {
+					t.Errorf("UniqueGoogleEmails()[%d] = %s, want %s", i, email, tt.want[i])
+				}
+			}
+		})
+	}
+}

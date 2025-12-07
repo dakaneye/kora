@@ -22,6 +22,30 @@ type Config struct {
 // DatasourcesConfig configures which datasources are enabled.
 type DatasourcesConfig struct {
 	GitHub GitHubConfig `yaml:"github"`
+	Google GoogleConfig `yaml:"google,omitempty"`
+}
+
+// GoogleConfig configures Google datasources (Calendar and Gmail).
+type GoogleConfig struct {
+	Calendars []CalendarConfig `yaml:"calendars,omitempty"`
+	Gmail     []GmailConfig    `yaml:"gmail,omitempty"`
+}
+
+// CalendarConfig configures a single Google Calendar datasource.
+type CalendarConfig struct {
+	// Email is the Google account email (required).
+	Email string `yaml:"email"`
+	// CalendarID is the calendar to fetch (default: "primary").
+	CalendarID string `yaml:"calendar_id,omitempty"`
+}
+
+// GmailConfig configures a single Gmail datasource.
+type GmailConfig struct {
+	// Email is the Google account email (required).
+	Email string `yaml:"email"`
+	// ImportantSenders is a list of email addresses or domains (e.g., "@company.com")
+	// that should be treated as high priority.
+	ImportantSenders []string `yaml:"important_senders,omitempty"`
 }
 
 // GitHubConfig configures the GitHub datasource.
@@ -145,4 +169,37 @@ func MustLoad(path string) *Config {
 		panic(err)
 	}
 	return cfg
+}
+
+// HasGoogleCalendars returns true if any Google calendars are configured.
+func (c *Config) HasGoogleCalendars() bool {
+	return len(c.Datasources.Google.Calendars) > 0
+}
+
+// HasGmail returns true if any Gmail accounts are configured.
+func (c *Config) HasGmail() bool {
+	return len(c.Datasources.Google.Gmail) > 0
+}
+
+// UniqueGoogleEmails returns deduplicated list of all Google account emails.
+// Used for auth - each email needs one OAuth credential.
+func (c *Config) UniqueGoogleEmails() []string {
+	seen := make(map[string]struct{})
+	var emails []string
+
+	for _, cal := range c.Datasources.Google.Calendars {
+		if _, ok := seen[cal.Email]; !ok {
+			seen[cal.Email] = struct{}{}
+			emails = append(emails, cal.Email)
+		}
+	}
+
+	for _, gmail := range c.Datasources.Google.Gmail {
+		if _, ok := seen[gmail.Email]; !ok {
+			seen[gmail.Email] = struct{}{}
+			emails = append(emails, gmail.Email)
+		}
+	}
+
+	return emails
 }

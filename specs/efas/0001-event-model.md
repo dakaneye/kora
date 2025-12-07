@@ -80,20 +80,42 @@ const (
     // Slack event types
     EventTypeSlackDM       EventType = "slack_dm"        // Direct message
     EventTypeSlackMention  EventType = "slack_mention"   // @mention in channel
+
+    // Google Calendar event types
+    EventTypeCalendarUpcoming         EventType = "calendar_upcoming"          // Meeting starts within 1hr
+    EventTypeCalendarNeedsRSVP        EventType = "calendar_needs_rsvp"        // No response yet
+    EventTypeCalendarOrganizerPending EventType = "calendar_organizer_pending" // Organizing, awaiting RSVPs
+    EventTypeCalendarTentative        EventType = "calendar_tentative"         // Marked tentative
+    EventTypeCalendarMeeting          EventType = "calendar_meeting"           // Accepted meeting
+    EventTypeCalendarAllDay           EventType = "calendar_all_day"           // All-day event
+
+    // Gmail event types
+    EventTypeEmailImportant EventType = "email_important" // Important sender or Gmail-marked important
+    EventTypeEmailDirect    EventType = "email_direct"    // User in To: field, unread
+    EventTypeEmailCC        EventType = "email_cc"        // User in CC: field
 )
 
 // validEventTypes is the authoritative set of valid event types.
 var validEventTypes = map[EventType]struct{}{
-    EventTypePRReview:         {},
-    EventTypePRMention:        {},
-    EventTypePRAuthor:         {},
-    EventTypePRCodeowner:      {},
-    EventTypePRClosed:         {},
-    EventTypePRCommentMention: {},
-    EventTypeIssueMention:     {},
-    EventTypeIssueAssigned:    {},
-    EventTypeSlackDM:          {},
-    EventTypeSlackMention:     {},
+    EventTypePRReview:                 {},
+    EventTypePRMention:                {},
+    EventTypePRAuthor:                 {},
+    EventTypePRCodeowner:              {},
+    EventTypePRClosed:                 {},
+    EventTypePRCommentMention:         {},
+    EventTypeIssueMention:             {},
+    EventTypeIssueAssigned:            {},
+    EventTypeSlackDM:                  {},
+    EventTypeSlackMention:             {},
+    EventTypeCalendarUpcoming:         {},
+    EventTypeCalendarNeedsRSVP:        {},
+    EventTypeCalendarOrganizerPending: {},
+    EventTypeCalendarTentative:        {},
+    EventTypeCalendarMeeting:          {},
+    EventTypeCalendarAllDay:           {},
+    EventTypeEmailImportant:           {},
+    EventTypeEmailDirect:              {},
+    EventTypeEmailCC:                  {},
 }
 
 // IsValid reports whether t is a defined EventType constant.
@@ -111,14 +133,18 @@ func (t EventType) IsValid() bool {
 type Source string
 
 const (
-    SourceGitHub Source = "github"
-    SourceSlack  Source = "slack"
+    SourceGitHub         Source = "github"
+    SourceSlack          Source = "slack"
+    SourceGoogleCalendar Source = "google_calendar"
+    SourceGmail          Source = "gmail"
 )
 
 // validSources is the authoritative set of valid sources.
 var validSources = map[Source]struct{}{
-    SourceGitHub: {},
-    SourceSlack:  {},
+    SourceGitHub:         {},
+    SourceSlack:          {},
+    SourceGoogleCalendar: {},
+    SourceGmail:          {},
 }
 
 // IsValid reports whether s is a defined Source constant.
@@ -234,6 +260,44 @@ Rich context for issues to provide UI-level detail.
 | `thread_ts` | string | Thread timestamp if in thread |
 | `is_thread_reply` | bool | Whether this is a thread reply |
 
+#### Google Calendar Metadata
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `calendar_id` | string | Calendar identifier |
+| `event_id` | string | Event identifier |
+| `start_time` | string | RFC3339 start timestamp |
+| `end_time` | string | RFC3339 end timestamp |
+| `is_all_day` | bool | Whether all-day event |
+| `organizer_email` | string | Organizer's email |
+| `organizer_name` | string | Organizer's display name |
+| `attendees` | []map | Attendees: `[{email, name, status}]` |
+| `attendee_count` | int | Number of attendees |
+| `response_status` | string | User's response: "accepted", "tentative", "needsAction", "declined" |
+| `pending_rsvps` | []string | Attendees who haven't responded |
+| `location` | string | Event location |
+| `conference_url` | string | Video conference link |
+| `description` | string | Event description (truncated to 500 chars) |
+
+#### Gmail Metadata
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `message_id` | string | Gmail message ID |
+| `thread_id` | string | Gmail thread ID |
+| `from_email` | string | Sender email |
+| `from_name` | string | Sender display name |
+| `to_addresses` | []string | To recipients |
+| `cc_addresses` | []string | CC recipients |
+| `subject` | string | Email subject |
+| `snippet` | string | Email preview (first 200 chars) |
+| `labels` | []string | Gmail labels |
+| `is_unread` | bool | Unread status |
+| `is_important` | bool | Gmail important marker |
+| `is_starred` | bool | Starred status |
+| `has_attachments` | bool | Has attachments |
+| `received_at` | string | RFC3339 receive timestamp |
+
 **AI Agent Rule:** Do NOT add metadata keys not listed above without updating this EFA.
 
 ### Validation Rules
@@ -297,6 +361,38 @@ var allowedMetadataKeys = map[Source]map[string]struct{}{
         "channel":         {},
         "thread_ts":       {},
         "is_thread_reply": {},
+    },
+    SourceGoogleCalendar: {
+        "calendar_id":      {},
+        "event_id":         {},
+        "start_time":       {},
+        "end_time":         {},
+        "is_all_day":       {},
+        "organizer_email":  {},
+        "organizer_name":   {},
+        "attendees":        {},
+        "attendee_count":   {},
+        "response_status":  {},
+        "pending_rsvps":    {},
+        "location":         {},
+        "conference_url":   {},
+        "description":      {},
+    },
+    SourceGmail: {
+        "message_id":       {},
+        "thread_id":        {},
+        "from_email":       {},
+        "from_name":        {},
+        "to_addresses":     {},
+        "cc_addresses":     {},
+        "subject":          {},
+        "snippet":          {},
+        "labels":           {},
+        "is_unread":        {},
+        "is_important":     {},
+        "is_starred":       {},
+        "has_attachments":  {},
+        "received_at":      {},
     },
 }
 
@@ -385,14 +481,23 @@ Datasources MUST assign priority according to these rules:
 | PR review requested (direct user) | 2 (High) | pr_review | direct_reviewer | true |
 | PR author + changes requested | 2 (High) | pr_author | author | true |
 | Direct message / DM | 2 (High) | slack_dm | - | true |
+| Calendar event starts within 1hr | 2 (High) | calendar_upcoming | - | false |
+| Important email | 2 (High) | email_important | - | true |
 | PR review requested (team) | 3 (Medium) | pr_review | team_reviewer | true |
 | PR author (pending/approved) | 3 (Medium) | pr_author | author | true |
 | PR codeowner (not explicit reviewer) | 3 (Medium) | pr_codeowner | codeowner | true |
 | @mention in issue/PR/channel | 3 (Medium) | *_mention | mentioned | false |
 | PR comment mention | 3 (Medium) | pr_comment_mention | mentioned | false |
 | Issue assigned | 3 (Medium) | issue_assigned | assignee | true |
+| Calendar needs RSVP | 3 (Medium) | calendar_needs_rsvp | - | true |
+| Calendar organizer awaiting RSVPs | 3 (Medium) | calendar_organizer_pending | - | true |
+| Calendar tentative | 3 (Medium) | calendar_tentative | - | false |
+| Calendar accepted meeting | 3 (Medium) | calendar_meeting | - | false |
+| Direct email (in To:) | 3 (Medium) | email_direct | - | true |
 | Thread reply | 4 (Low) | slack_mention | - | false |
+| CC email | 4 (Low) | email_cc | - | false |
 | PR closed (merged/closed) | 5 (Info) | pr_closed | author | false |
+| Calendar all-day event | 5 (Info) | calendar_all_day | - | false |
 | FYI / informational | 5 (Info) | - | - | false |
 
 **Priority Calculation for PR Author:**
@@ -415,6 +520,58 @@ func calculatePRReviewPriority(reviewRequestType string) Priority {
         return PriorityHigh // 2 - Direct request
     }
     return PriorityMedium // 3 - Team request
+}
+```
+
+**Priority Calculation for Calendar Events:**
+```go
+func calculateCalendarPriority(event CalendarEvent, now time.Time) (Priority, EventType) {
+    // Check if upcoming within 1 hour
+    if event.StartTime.Sub(now) <= time.Hour && event.StartTime.After(now) {
+        return PriorityHigh, EventTypeCalendarUpcoming
+    }
+
+    // Check response status
+    switch event.ResponseStatus {
+    case "needsAction":
+        return PriorityMedium, EventTypeCalendarNeedsRSVP
+    case "tentative":
+        return PriorityMedium, EventTypeCalendarTentative
+    case "accepted":
+        if event.IsAllDay {
+            return PriorityInfo, EventTypeCalendarAllDay
+        }
+        return PriorityMedium, EventTypeCalendarMeeting
+    }
+
+    // Check if user is organizer awaiting responses
+    if event.IsOrganizer && len(event.PendingRSVPs) > 0 {
+        return PriorityMedium, EventTypeCalendarOrganizerPending
+    }
+
+    return PriorityInfo, EventTypeCalendarAllDay // Default for all-day
+}
+```
+
+**Priority Calculation for Gmail:**
+```go
+func calculateEmailPriority(email Email, currentUser string) (Priority, EventType) {
+    // Check if important (Gmail marker or VIP sender)
+    if email.IsImportant || email.IsFromVIP {
+        return PriorityHigh, EventTypeEmailImportant
+    }
+
+    // Check if directly addressed
+    if email.IsDirectlyAddressed(currentUser) && email.IsUnread {
+        return PriorityMedium, EventTypeEmailDirect
+    }
+
+    // CC'd emails
+    if email.IsCCd(currentUser) {
+        return PriorityLow, EventTypeEmailCC
+    }
+
+    return PriorityLow, EventTypeEmailCC // Default
 }
 ```
 
@@ -685,6 +842,76 @@ When the same PR appears in multiple searches (e.g., user is both mentioned and 
 }
 ```
 
+**Google Calendar Meeting (Upcoming):**
+```json
+{
+  "type": "calendar_upcoming",
+  "title": "Team standup in 45 minutes",
+  "source": "google_calendar",
+  "url": "https://calendar.google.com/event?eid=abc123",
+  "author": {
+    "name": "Engineering Manager",
+    "username": "manager@company.com"
+  },
+  "timestamp": "2025-12-07T09:15:00Z",
+  "priority": 2,
+  "requires_action": false,
+  "metadata": {
+    "calendar_id": "primary",
+    "event_id": "abc123",
+    "start_time": "2025-12-07T10:00:00Z",
+    "end_time": "2025-12-07T10:30:00Z",
+    "is_all_day": false,
+    "organizer_email": "manager@company.com",
+    "organizer_name": "Engineering Manager",
+    "attendees": [
+      {"email": "currentuser@company.com", "name": "Current User", "status": "accepted"},
+      {"email": "teammate1@company.com", "name": "Teammate 1", "status": "accepted"},
+      {"email": "teammate2@company.com", "name": "Teammate 2", "status": "needsAction"}
+    ],
+    "attendee_count": 3,
+    "response_status": "accepted",
+    "pending_rsvps": ["teammate2@company.com"],
+    "location": "Conference Room A",
+    "conference_url": "https://meet.google.com/xyz-abc-def",
+    "description": "Daily team standup"
+  }
+}
+```
+
+**Gmail Important Email:**
+```json
+{
+  "type": "email_important",
+  "title": "Q4 Planning Meeting Required",
+  "source": "gmail",
+  "url": "https://mail.google.com/mail/u/0/#inbox/abc123",
+  "author": {
+    "name": "VP Engineering",
+    "username": "vp@company.com"
+  },
+  "timestamp": "2025-12-07T08:30:00Z",
+  "priority": 2,
+  "requires_action": true,
+  "metadata": {
+    "message_id": "abc123",
+    "thread_id": "thread_xyz",
+    "from_email": "vp@company.com",
+    "from_name": "VP Engineering",
+    "to_addresses": ["currentuser@company.com", "team@company.com"],
+    "cc_addresses": [],
+    "subject": "Q4 Planning Meeting Required",
+    "snippet": "We need to finalize Q4 priorities by end of week. Please review the attached document and come prepared with your team's roadmap...",
+    "labels": ["IMPORTANT", "INBOX"],
+    "is_unread": true,
+    "is_important": true,
+    "is_starred": false,
+    "has_attachments": true,
+    "received_at": "2025-12-07T08:30:00Z"
+  }
+}
+```
+
 ### Why This Design?
 
 - **Flat structure**: Easy to serialize/deserialize, no nested complexity
@@ -776,9 +1003,10 @@ const EventTypePRComment EventType = "pr_comment" // NOT in EFA 0001
 ```
 
 **NOTE:** As of this update, the following EventTypes are valid:
-- `pr_review`, `pr_mention`, `pr_author`, `pr_codeowner`, `pr_closed`, `pr_comment_mention`
-- `issue_mention`, `issue_assigned`
-- `slack_dm`, `slack_mention`
+- GitHub: `pr_review`, `pr_mention`, `pr_author`, `pr_codeowner`, `pr_closed`, `pr_comment_mention`, `issue_mention`, `issue_assigned`
+- Slack: `slack_dm`, `slack_mention`
+- Google Calendar: `calendar_upcoming`, `calendar_needs_rsvp`, `calendar_organizer_pending`, `calendar_tentative`, `calendar_meeting`, `calendar_all_day`
+- Gmail: `email_important`, `email_direct`, `email_cc`
 
 ### Rule 3: NEVER Add Metadata Keys Without EFA Update
 
@@ -896,6 +1124,40 @@ metadata["user_relationships"] = []string{"mentioned", "codeowner"}
 metadata := map[string]any{
     "repo": "org/repo",
     // Missing: "user_relationships"
+}
+```
+
+### Rule 8: Google Calendar and Gmail Events Follow Specific Rules
+
+**Google Calendar EventType Selection:**
+- Use `calendar_upcoming` for events starting within 1 hour
+- Use `calendar_needs_rsvp` when user's response_status is "needsAction"
+- Use `calendar_organizer_pending` when user is organizer with pending RSVPs
+- Use `calendar_tentative` when user's response_status is "tentative"
+- Use `calendar_meeting` for accepted meetings
+- Use `calendar_all_day` for all-day events
+
+**Gmail EventType Selection:**
+- Use `email_important` for Gmail-marked important OR from VIP sender
+- Use `email_direct` when user is in To: field and email is unread
+- Use `email_cc` when user is in CC: field
+
+**CORRECT:**
+```go
+// Calendar event classification
+if event.StartTime.Sub(now) <= time.Hour && event.StartTime.After(now) {
+    return EventTypeCalendarUpcoming, PriorityHigh
+}
+if event.ResponseStatus == "needsAction" {
+    return EventTypeCalendarNeedsRSVP, PriorityMedium
+}
+
+// Email classification
+if email.IsImportant {
+    return EventTypeEmailImportant, PriorityHigh
+}
+if isDirectlyAddressed && email.IsUnread {
+    return EventTypeEmailDirect, PriorityMedium
 }
 ```
 
