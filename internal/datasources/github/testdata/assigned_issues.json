@@ -1,0 +1,40 @@
+{
+  "total_count": 2,
+  "items": [
+    {
+      "number": 567,
+      "title": "Investigate memory leak in worker pool",
+      "html_url": "https://github.com/example/repo2/issues/567",
+      "state": "open",
+      "updated_at": "2025-12-06T04:00:00Z",
+      "repository_url": "https://api.github.com/repos/example/repo2",
+      "user": {
+        "login": "qaengineer"
+      },
+      "labels": [
+        {
+          "name": "performance"
+        },
+        {
+          "name": "bug"
+        }
+      ]
+    },
+    {
+      "number": 890,
+      "title": "Refactor database connection pooling",
+      "html_url": "https://github.com/example/repo3/issues/890",
+      "state": "open",
+      "updated_at": "2025-12-06T03:00:00Z",
+      "repository_url": "https://api.github.com/repos/example/repo3",
+      "user": {
+        "login": "dba"
+      },
+      "labels": [
+        {
+          "name": "refactor"
+        }
+      ]
+    }
+  ]
+}
