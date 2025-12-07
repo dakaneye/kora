@@ -90,7 +90,16 @@ func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint
 		return m.handleGraphQL(args)
 	}
 
-	// Handle REST endpoint (legacy)
+	// Handle direct REST endpoint (e.g., "user", "repos/owner/repo/contents/path")
+	// Check for direct endpoint match first
+	if resp, ok := m.responses["rest:"+endpoint]; ok {
+		if resp.err != nil {
+			return nil, resp.err
+		}
+		return resp.data, nil
+	}
+
+	// Handle REST search endpoint (legacy)
 	return m.handleREST(args)
 }
 

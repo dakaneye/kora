@@ -11,11 +11,15 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/dakaneye/kora/internal/auth"
+	"github.com/dakaneye/kora/internal/codeowners"
 	"github.com/dakaneye/kora/internal/datasources"
 	"github.com/dakaneye/kora/internal/models"
 )
@@ -30,9 +34,20 @@ type githubCredential interface {
 //
 // SECURITY: All API calls are delegated to GitHubDelegatedCredential.ExecuteAPI().
 // This datasource NEVER sees or handles GitHub tokens directly.
+//
+//nolint:govet // Field order prioritizes readability over memory alignment
 type DataSource struct {
 	authProvider auth.AuthProvider
 	orgs         []string // organizations to search (optional filter)
+
+	// CODEOWNERS support (optional)
+	codeownersFetcher *codeowners.Fetcher      // fetches CODEOWNERS files from repos
+	teamResolver      *codeowners.TeamResolver // resolves team memberships
+
+	// Current user caching
+	currentUser     string    // cached GitHub login
+	currentUserOnce sync.Once // ensures single fetch
+	currentUserErr  error     // cached error from user fetch
 }
 
 // Option configures the GitHub DataSource.
@@ -43,6 +58,24 @@ type Option func(*DataSource)
 func WithOrgs(orgs []string) Option {
 	return func(d *DataSource) {
 		d.orgs = orgs
+	}
+}
+
+// WithCodeownersFetcher enables CODEOWNERS-based event detection.
+// When set, the datasource will check if the current user owns changed
+// files in PRs and create EventTypePRCodeowner events accordingly.
+func WithCodeownersFetcher(fetcher *codeowners.Fetcher) Option {
+	return func(d *DataSource) {
+		d.codeownersFetcher = fetcher
+	}
+}
+
+// WithTeamResolver enables team membership resolution for CODEOWNERS.
+// When set, team references like @org/team in CODEOWNERS files will be
+// resolved to check if the current user is a member.
+func WithTeamResolver(resolver *codeowners.TeamResolver) Option {
+	return func(d *DataSource) {
+		d.teamResolver = resolver
 	}
 }
 
@@ -185,6 +218,54 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 	// Deduplicate by URL (same item can appear in multiple searches)
 	allEvents = deduplicateEvents(allEvents)
 
+	// 5. Check CODEOWNERS for PR events (optional)
+	// Only process if codeownersFetcher is configured
+	if d.codeownersFetcher != nil {
+		currentUser, userErr := d.getCurrentUser(ctx, ghCred)
+		if userErr != nil {
+			// Non-fatal: log error but continue without CODEOWNERS
+			fetchErrors = append(fetchErrors, fmt.Errorf("codeowners: %w", userErr))
+		} else if currentUser != "" {
+			// Check each PR event for CODEOWNERS matches
+			var codeownerEvents []models.Event
+		codeownerLoop:
+			for i := range allEvents {
+				// Only process PR events (not issues)
+				eventType := allEvents[i].Type
+				if eventType != models.EventTypePRReview &&
+					eventType != models.EventTypePRMention &&
+					eventType != models.EventTypePRAuthor {
+					continue
+				}
+
+				// Check context cancellation
+				select {
+				case <-ctx.Done():
+					// Partial success with what we have
+					break codeownerLoop
+				default:
+				}
+
+				codeownerEvent, err := d.checkCodeownerEvents(ctx, &allEvents[i], currentUser)
+				if err != nil {
+					// Non-fatal: log but continue
+					fetchErrors = append(fetchErrors, err)
+					continue
+				}
+				if codeownerEvent != nil {
+					codeownerEvents = append(codeownerEvents, *codeownerEvent)
+				}
+			}
+
+			// Add codeowner events
+			if len(codeownerEvents) > 0 {
+				allEvents = append(allEvents, codeownerEvents...)
+				// Deduplicate again in case same PR appears as both reviewer and codeowner
+				allEvents = deduplicateEvents(allEvents)
+			}
+		}
+	}
+
 	// Record fetched count before filtering
 	result.Stats.EventsFetched = len(allEvents)
 
@@ -218,4 +299,189 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 	result.Stats.Duration = time.Since(startTime)
 
 	return result, nil
+}
+
+// getCurrentUser fetches and caches the current GitHub user login.
+// Uses sync.Once to ensure only one API call is made across multiple invocations.
+//
+// Returns the cached user login or an error if the fetch failed.
+func (d *DataSource) getCurrentUser(ctx context.Context, cred githubCredential) (string, error) {
+	d.currentUserOnce.Do(func() {
+		// Call gh api user to get current user info
+		out, err := cred.ExecuteAPI(ctx, "user")
+		if err != nil {
+			d.currentUserErr = fmt.Errorf("fetching current user: %w", err)
+			return
+		}
+
+		var user struct {
+			Login string `json:"login"`
+		}
+		if err := json.Unmarshal(out, &user); err != nil {
+			d.currentUserErr = fmt.Errorf("parsing user response: %w", err)
+			return
+		}
+
+		if user.Login == "" {
+			d.currentUserErr = fmt.Errorf("empty login in user response")
+			return
+		}
+
+		d.currentUser = user.Login
+	})
+
+	return d.currentUser, d.currentUserErr
+}
+
+// checkCodeownerEvents checks if the user is a codeowner of changed files in a PR.
+// Returns a codeowner event if the user owns files but is NOT already a reviewer.
+//
+// This method is only called when codeownersFetcher is configured.
+//
+// Per EFA 0001:
+//   - EventType: models.EventTypePRCodeowner
+//   - Priority: models.PriorityMedium (3)
+//   - RequiresAction: true
+//   - user_relationships includes "codeowner"
+func (d *DataSource) checkCodeownerEvents(
+	ctx context.Context,
+	event *models.Event,
+	currentUser string,
+) (*models.Event, error) {
+	// Skip if no CODEOWNERS fetcher configured
+	if d.codeownersFetcher == nil {
+		return nil, nil
+	}
+
+	// Extract repo from metadata
+	repo, repoOK := event.Metadata["repo"].(string)
+	if !repoOK || repo == "" {
+		return nil, nil
+	}
+
+	// Check existing user_relationships - skip if already a reviewer
+	if existingRels, relsOK := event.Metadata["user_relationships"].([]string); relsOK {
+		for _, rel := range existingRels {
+			if rel == "reviewer" || rel == "requested_reviewer" {
+				// Already a reviewer, don't create duplicate codeowner event
+				return nil, nil
+			}
+		}
+	}
+
+	// Also check review_requests to see if user is explicitly requested
+	if reviewRequests, reqOK := event.Metadata["review_requests"].([]map[string]any); reqOK {
+		for _, req := range reviewRequests {
+			if login, loginOK := req["login"].(string); loginOK {
+				if strings.EqualFold(login, currentUser) {
+					// User is explicitly requested as reviewer
+					return nil, nil
+				}
+			}
+		}
+	}
+
+	// Check reviews to see if user has already reviewed
+	if reviews, revOK := event.Metadata["reviews"].([]map[string]any); revOK {
+		for _, review := range reviews {
+			if author, authOK := review["author"].(string); authOK {
+				if strings.EqualFold(author, currentUser) {
+					// User has already reviewed this PR
+					return nil, nil
+				}
+			}
+		}
+	}
+
+	// Get CODEOWNERS ruleset for the repo
+	ruleset, err := d.codeownersFetcher.GetRuleset(ctx, repo)
+	if err != nil {
+		// Non-fatal: log and continue
+		return nil, fmt.Errorf("fetching CODEOWNERS for %s: %w", repo, err)
+	}
+	if ruleset == nil {
+		// No CODEOWNERS file in this repo
+		return nil, nil
+	}
+
+	// Get files_changed from metadata
+	filesChanged, filesOK := event.Metadata["files_changed"].([]map[string]any)
+	if !filesOK || len(filesChanged) == 0 {
+		return nil, nil
+	}
+
+	// Check each file against CODEOWNERS
+	isCodeowner := false
+	for _, file := range filesChanged {
+		path, pathOK := file["path"].(string)
+		if !pathOK || path == "" {
+			continue
+		}
+
+		owners := ruleset.Match(path)
+		if len(owners) == 0 {
+			continue
+		}
+
+		// Check if current user is an owner
+		for _, owner := range owners {
+			// Direct user match (with or without @ prefix)
+			ownerClean := strings.TrimPrefix(owner, "@")
+			if strings.EqualFold(ownerClean, currentUser) {
+				isCodeowner = true
+				break
+			}
+
+			// Team reference like @org/team
+			if strings.Contains(ownerClean, "/") && d.teamResolver != nil {
+				isMember, err := d.teamResolver.IsMember(ctx, ownerClean, currentUser)
+				if err != nil {
+					// Non-fatal: team resolution failed, continue checking
+					continue
+				}
+				if isMember {
+					isCodeowner = true
+					break
+				}
+			}
+		}
+
+		if isCodeowner {
+			break
+		}
+	}
+
+	if !isCodeowner {
+		return nil, nil
+	}
+
+	// User is a codeowner - create event
+	// Copy metadata and add codeowner to relationships
+	newMetadata := make(map[string]any, len(event.Metadata))
+	for k, v := range event.Metadata {
+		newMetadata[k] = v
+	}
+
+	// Update user_relationships to include codeowner
+	var relationships []string
+	if existingRels, existingOK := event.Metadata["user_relationships"].([]string); existingOK {
+		relationships = make([]string, len(existingRels), len(existingRels)+1)
+		copy(relationships, existingRels)
+	}
+	relationships = append(relationships, "codeowner")
+	newMetadata["user_relationships"] = relationships
+
+	codeownerEvent := models.Event{
+		Type:           models.EventTypePRCodeowner,
+		Title:          truncateTitle(fmt.Sprintf("You own files in: %s", event.Title)),
+		Source:         models.SourceGitHub,
+		URL:            event.URL,
+		Author:         event.Author,
+		Timestamp:      event.Timestamp,
+		Priority:       models.PriorityMedium, // Per EFA 0001
+		RequiresAction: true,
+		Metadata:       newMetadata,
+	}
+
+	return &codeownerEvent, nil
 }
