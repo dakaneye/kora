@@ -1,13 +1,12 @@
 # Kora
 
-CLI tool that aggregates GitHub and Slack activity into a prioritized morning digest.
+CLI tool that aggregates GitHub activity into a prioritized morning digest.
 
 ## Features
 
 - **GitHub**: PR review requests, PR mentions, issue mentions, issue assignments, authored PRs, closed/merged PRs, PR comment @mentions
-- **Slack**: Direct messages, @mentions in channels (requires enterprise workspace)
 - **Output formats**: JSON, JSON (pretty-printed), text
-- **Authentication**: GitHub via `gh` CLI delegation, Slack via macOS Keychain
+- **Authentication**: GitHub via `gh` CLI delegation
 - **Concurrent fetching**: Datasources run in parallel with graceful failure handling
 - **EFA governance**: AI-friendly architecture with explicit ground truth specifications
 
@@ -47,21 +46,7 @@ gh auth login
 
 Kora uses `gh` CLI delegation, never sees your GitHub token.
 
-### 2. Configure Slack (Optional)
-
-Slack integration requires enterprise workspace approval. Most users won't have access.
-
-If you have a Slack user token (`xoxp-*`):
-
-```bash
-# Store in macOS Keychain (recommended)
-security add-generic-password -s "kora" -a "slack-token" -w "xoxp-..."
-
-# Or set environment variable (less secure)
-export KORA_SLACK_TOKEN="xoxp-..."
-```
-
-### 3. Run Digest
+### 2. Run Digest
 
 ```bash
 # Fetch overnight activity (16 hour window)
@@ -86,8 +71,6 @@ datasources:
     enabled: true
     orgs:
       - my-org
-  slack:
-    enabled: true
 
 digest:
   window: 16h
@@ -196,8 +179,8 @@ make clean         # Remove build artifacts
 ```
 cmd/kora/           # CLI entry point
 internal/
-  auth/             # Authentication providers (GitHub gh CLI, Slack Keychain)
-  datasources/      # Event fetching (GitHub, Slack)
+  auth/             # Authentication providers (GitHub gh CLI)
+  datasources/      # Event fetching (GitHub)
   models/           # Core Event model
   output/           # Formatters (JSON, text)
   config/           # YAML configuration
@@ -209,22 +192,20 @@ tests/integration/  # Integration tests
 
 ## Documentation
 
-- `docs/architecture.md` - System architecture and data flow
-- `docs/datasources.md` - How to add new datasources
+- `specs/architecture.md` - System architecture and data flow
+- `specs/datasources.md` - How to add new datasources
 - `specs/efas/` - Ground truth specifications for AI agents
 - `SECURITY.md` - Security policies and credential handling
 
 ## Requirements
 
 - Go 1.25+
-- macOS (Keychain integration)
+- macOS (for Keychain integration in future datasources)
 - `gh` CLI authenticated (`gh auth login`)
-- Slack user token (`xoxp-*`) for Slack integration (optional)
 
 ## Security
 
 - GitHub auth: CLI delegation via `gh` - Kora never sees tokens
-- Slack auth: macOS Keychain with env var fallback
 - Credentials always redacted in logs
 - TLS verification always enabled
 - See `SECURITY.md` for details

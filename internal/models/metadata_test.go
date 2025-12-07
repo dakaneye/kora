@@ -121,10 +121,10 @@ func TestAsPRMetadata(t *testing.T) {
 			},
 		},
 		{
-			name: "non-GitHub event returns error",
+			name: "issue event returns error (AsPRMetadata)",
 			event: Event{
-				Type:      EventTypeSlackDM,
-				Source:    SourceSlack,
+				Type:      EventTypeIssueAssigned,
+				Source:    SourceGitHub,
 				Author:    Person{Username: "user"},
 				Timestamp: time.Now(),
 			},
@@ -244,10 +244,10 @@ func TestAsIssueMetadata(t *testing.T) {
 			},
 		},
 		{
-			name: "non-GitHub event returns error",
+			name: "non-issue event type returns error",
 			event: Event{
-				Type:      EventTypeSlackDM,
-				Source:    SourceSlack,
+				Type:      EventTypePRReview,
+				Source:    SourceGitHub,
 				Author:    Person{Username: "user"},
 				Timestamp: time.Now(),
 			},
@@ -290,8 +290,6 @@ func TestIsPREvent(t *testing.T) {
 		{EventTypePRCodeowner, true},
 		{EventTypeIssueMention, false},
 		{EventTypeIssueAssigned, false},
-		{EventTypeSlackDM, false},
-		{EventTypeSlackMention, false},
 	}
 
 	for _, tt := range tests {
@@ -315,8 +313,6 @@ func TestIsIssueEvent(t *testing.T) {
 		{EventTypePRCodeowner, false},
 		{EventTypeIssueMention, true},
 		{EventTypeIssueAssigned, true},
-		{EventTypeSlackDM, false},
-		{EventTypeSlackMention, false},
 	}
 
 	for _, tt := range tests {

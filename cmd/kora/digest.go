@@ -10,12 +10,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dakaneye/kora/internal/auth/github"
-	"github.com/dakaneye/kora/internal/auth/keychain"
-	"github.com/dakaneye/kora/internal/auth/slack"
 	"github.com/dakaneye/kora/internal/config"
 	"github.com/dakaneye/kora/internal/datasources"
 	githubds "github.com/dakaneye/kora/internal/datasources/github"
-	slackds "github.com/dakaneye/kora/internal/datasources/slack"
 	"github.com/dakaneye/kora/internal/output"
 )
 
@@ -28,13 +25,12 @@ var (
 var digestCmd = &cobra.Command{
 	Use:   "digest",
 	Short: "Generate your morning digest",
-	Long: `Generate a prioritized digest of work updates from GitHub and Slack.
+	Long: `Generate a prioritized digest of work updates from GitHub.
 
 The digest includes:
   - PR review requests
   - Mentions in PRs and issues
   - Assigned issues
-  - Slack DMs and mentions
 
 Examples:
   # Digest from the last 16 hours (default)
@@ -208,22 +204,6 @@ func initDatasources(ctx context.Context, cfg *config.Config) (sources []datasou
 				initErrors["github"] = fmt.Errorf("init failed: %w", err)
 			} else {
 				sources = append(sources, ghDS)
-			}
-		}
-	}
-
-	// Initialize Slack datasource if enabled
-	if cfg.Datasources.Slack.Enabled {
-		kc := keychain.NewMacOSKeychain("")
-		slackAuth := slack.NewSlackAuthProvider(kc, nil)
-		if err := slackAuth.Authenticate(ctx); err != nil {
-			initErrors["slack"] = fmt.Errorf("auth failed: %w", err)
-		} else {
-			slackDS, err := slackds.NewDataSource(slackAuth)
-			if err != nil {
-				initErrors["slack"] = fmt.Errorf("init failed: %w", err)
-			} else {
-				sources = append(sources, slackDS)
 			}
 		}
 	}

@@ -66,14 +66,6 @@ const (
 	EventTypeIssueAssigned EventType = "issue_assigned"
 )
 
-// EventType constants for Slack events.
-const (
-	// EventTypeSlackDM indicates a direct message.
-	EventTypeSlackDM EventType = "slack_dm"
-	// EventTypeSlackMention indicates an @mention in a channel.
-	EventTypeSlackMention EventType = "slack_mention"
-)
-
 // validEventTypes is the authoritative set of valid event types.
 // EFA 0001: Do NOT add types here without updating the EFA.
 var validEventTypes = map[EventType]struct{}{
@@ -85,8 +77,6 @@ var validEventTypes = map[EventType]struct{}{
 	EventTypePRCommentMention: {},
 	EventTypeIssueMention:     {},
 	EventTypeIssueAssigned:    {},
-	EventTypeSlackDM:          {},
-	EventTypeSlackMention:     {},
 }
 
 // IsValid reports whether t is a defined EventType constant.
@@ -103,15 +93,12 @@ type Source string
 const (
 	// SourceGitHub indicates the event came from GitHub.
 	SourceGitHub Source = "github"
-	// SourceSlack indicates the event came from Slack.
-	SourceSlack Source = "slack"
 )
 
 // validSources is the authoritative set of valid sources.
 // EFA 0001: Do NOT add sources here without updating the EFA.
 var validSources = map[Source]struct{}{
 	SourceGitHub: {},
-	SourceSlack:  {},
 }
 
 // IsValid reports whether s is a defined Source constant.

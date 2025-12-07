@@ -4,7 +4,7 @@
 
 ## Overview
 
-Kora aggregates data from GitHub and Slack to provide morning briefings that Claude can invoke via Bash or MCP.
+Kora aggregates data from GitHub to provide morning briefings that Claude can invoke via Bash or MCP. Additional datasources (Linear, Calendar, Gmail) are planned for future iterations.
 
 ## Repository Structure
 
@@ -25,9 +25,6 @@ kora/
 │   │   ├── github/
 │   │   │   ├── auth.go            # gh CLI delegation
 │   │   │   └── auth_test.go
-│   │   ├── slack/
-│   │   │   ├── auth.go            # Keychain + env fallback
-│   │   │   └── auth_test.go
 │   │   └── keychain/
 │   │       ├── keychain.go        # Interface
 │   │       ├── keychain_darwin.go # macOS implementation
@@ -35,14 +32,10 @@ kora/
 │   │
 │   ├── datasources/               # Pluggable data sources
 │   │   ├── datasource.go          # Interface + registry
-│   │   ├── github/
-│   │   │   ├── client.go
-│   │   │   ├── prs.go
-│   │   │   ├── issues.go
-│   │   │   └── client_test.go
-│   │   └── slack/
+│   │   └── github/
 │   │       ├── client.go
-│   │       ├── messages.go
+│   │       ├── prs.go
+│   │       ├── issues.go
 │   │       └── client_test.go
 │   │
 │   ├── models/                    # Domain models
@@ -85,11 +78,9 @@ kora/
 ├── tests/
 │   ├── integration/
 │   │   ├── digest_test.go
-│   │   ├── github_auth_test.go
-│   │   └── slack_auth_test.go
+│   │   └── github_auth_test.go
 │   └── testdata/
-│       ├── github_prs.json
-│       └── slack_messages.json
+│       └── github_prs.json
 │
 ├── .github/
 │   ├── workflows/
@@ -130,7 +121,7 @@ Key interfaces enable testing and future extensibility (see EFAs for ground trut
 All datasources produce normalized events that must pass `Event.Validate()`:
 ```
 Event:
-  - Type (pr_review, pr_mention, issue_mention, issue_assigned, slack_dm, slack_mention)
+  - Type (pr_review, pr_mention, issue_mention, issue_assigned, pr_comment_mention, pr_closed, pr_author, pr_codeowner)
   - Title (1-100 chars), Source, URL
   - Author (Person with Username required)
   - Timestamp (UTC, non-zero), Priority (1-5)
@@ -141,23 +132,25 @@ See EFA 0001 for complete validation rules and metadata key allowlists.
 
 ### 3. Authentication Strategy
 
-**Priority order:**
+**Current Implementation:**
 1. **CLI Delegation** (GitHub via `gh`) - Most secure, no credential storage
-2. **macOS Keychain** (Slack token) - OS-managed security
+
+**Future Datasources:**
+2. **macOS Keychain** (for services requiring token storage) - OS-managed security
 3. **Environment Variable** - Fallback when keychain unavailable
 
 **Auth Provider Interface (see EFA 0002):**
 - `Service()` - Return which service this provider authenticates
 - `Authenticate(ctx)` - Validate credentials exist and are usable
-- `GetCredential(ctx)` - Retrieve credential (GitHub: delegated, Slack: token)
+- `GetCredential(ctx)` - Retrieve credential (GitHub: delegated, future: tokens)
 - `IsAuthenticated(ctx)` - Check auth status (non-blocking)
 
-**Note:** GitHub uses CLI delegation via `GitHubDelegatedCredential.ExecuteAPI()` - Kora never extracts or stores GitHub tokens. Slack tokens are stored in macOS Keychain.
+**Note:** GitHub uses CLI delegation via `GitHubDelegatedCredential.ExecuteAPI()` - Kora never extracts or stores GitHub tokens.
 
-**macOS Keychain Implementation:**
+**macOS Keychain Implementation (future datasources):**
 - Use `security` command-line tool
 - Service name: "kora"
-- Account name: credential key (e.g., "slack-token")
+- Account name: credential key (e.g., "linear-token")
 
 ### 4. Configuration
 
@@ -174,11 +167,6 @@ datasources:
     enabled: true
     orgs:
       - chainguard-dev
-
-  slack:
-    enabled: true
-    workspaces:
-      - chainguard
 
 digest:
   window: 16h
@@ -218,7 +206,7 @@ security:
 1. **Credential Management**
    - Never store credentials in plaintext
    - Prefer CLI delegation (gh) over credential storage
-   - Use macOS Keychain for tokens
+   - Use macOS Keychain for tokens (future datasources)
    - Environment variables as last resort
    - Redact all credentials in logs
 
@@ -248,7 +236,7 @@ security:
 | Service | Method | Storage | Why |
 |---------|--------|---------|-----|
 | GitHub | `gh` CLI | None (gh manages) | Most secure |
-| Slack | Token | Keychain → Env var | Keychain preferred |
+| Future sources | Token | Keychain → Env var | Keychain preferred |
 
 ## CI/CD Design
 
@@ -293,14 +281,6 @@ clean               # Remove artifacts
 - Check credential type and redaction
 - Requires: `gh auth login` completed
 
-### Slack Auth Test
-- Store token in keychain
-- Retrieve from keychain or env var
-- Validate token format (xoxp-*)
-- Verify redaction
-- Clean up (delete from keychain)
-- Requires: `KORA_SLACK_TOKEN` env var
-
 **Run with:**
 ```bash
 make test-integration
@@ -314,12 +294,11 @@ make test-integration
 
 2. **Authentication**
    - GitHub via `gh` CLI delegation
-   - Slack via macOS Keychain + env fallback
-   - Integration tests for both
+   - Integration tests for auth
 
 3. **Datasources**
    - GitHub: PRs and Issues
-   - Slack: DMs and mentions
+   - Future: Linear, Calendar, Gmail
 
 4. **Output formats**
    - Terminal (pretty table)
@@ -367,7 +346,7 @@ kora digest --since 16h --format json
 ## Success Criteria
 
 - ✅ Digest completes in <10s
-- ✅ GitHub and Slack datasources work
+- ✅ GitHub datasource works
 - ✅ Auth secure (no plaintext creds)
 - ✅ All credentials redacted in logs
 - ✅ Three output formats
@@ -380,14 +359,14 @@ kora digest --since 16h --format json
 
 1. Initialize repo and Go module
 2. Create auth interfaces and keychain (macOS)
-3. Implement GitHub + Slack auth providers with tests
+3. Implement GitHub auth provider with tests
 4. Create Event model and DataSource interface
 5. Implement GitHub datasource
-6. Implement Slack datasource
-7. Wire up CLI with Cobra
-8. Add output formatters
-9. Set up GitHub Actions (CI, security)
-10. Write documentation (README, SECURITY.md)
+6. Wire up CLI with Cobra
+7. Add output formatters
+8. Set up GitHub Actions (CI, security)
+9. Write documentation (README, SECURITY.md)
+10. Plan future datasources (Linear, Calendar, Gmail)
 
 ## Example Output
 
@@ -396,21 +375,21 @@ kora digest --since 16h --format json
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║ Morning Digest - December 6, 2025 9:00 AM PST                        ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║ Priority 1 - Requires Action (3 items)                               ║
+║ Priority 1 - Requires Action (2 items)                               ║
 ╠═══════════════════════════════════════════════════════════════════════╣
 ║ [PR Review] Add secure rebuild for core-java                         ║
 ║ │ Source: github.com/chainguard-dev/internal-dev/pulls/1234          ║
 ║ │ Author: @teammate1 • 2 hours ago                                   ║
 ║ └─ Waiting on your review                                            ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║ [Slack DM] Question about deployment                                 ║
-║ │ Source: slack.com/chainguard                                       ║
-║ │ Author: @manager • 4 hours ago                                     ║
-║ └─ Needs response                                                    ║
+║ [Issue Assigned] Customer onboarding - Acme Corp                     ║
+║ │ Source: github.com/chainguard-dev/internal-dev/issues/789          ║
+║ │ Author: @salesrep • 4 hours ago                                    ║
+║ └─ Needs initial assessment                                          ║
 ╚═══════════════════════════════════════════════════════════════════════╝
 
-Summary: 3 items require action, 5 for awareness
-Execution time: 4.2s
+Summary: 2 items require action, 4 for awareness
+Execution time: 3.8s
 ```
 
 ### JSON (for Claude)
@@ -426,12 +405,14 @@ Execution time: 4.2s
       "username": "teammate1"
     },
     "timestamp": "2025-12-06T07:00:00Z",
-    "priority": 1,
+    "priority": 2,
     "requires_action": true,
     "metadata": {
       "repo": "chainguard-dev/internal-dev",
-      "pr_number": 1234,
-      "review_state": "pending"
+      "number": 1234,
+      "state": "open",
+      "user_relationships": ["direct_reviewer"],
+      "ci_rollup": "success"
     }
   }
 ]

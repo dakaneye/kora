@@ -53,12 +53,6 @@ var allowedMetadataKeys = map[Source]map[string]struct{}{
 		"reactions":        {},
 		"timeline_summary": {},
 	},
-	SourceSlack: {
-		"workspace":       {},
-		"channel":         {},
-		"thread_ts":       {},
-		"is_thread_reply": {},
-	},
 }
 
 // Validate checks that the event satisfies all invariants defined in EFA 0001.

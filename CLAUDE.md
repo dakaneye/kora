@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Kora is a Go CLI tool that aggregates work updates from GitHub and Slack into a prioritized morning digest. Claude can invoke it directly via Bash or as an MCP tool.
+Kora is a Go CLI tool that aggregates work updates from GitHub into a prioritized morning digest. Claude can invoke it directly via Bash or as an MCP tool.
 
 **Specs**: `specs/prototype/` contains the original design docs. `specs/repository-layout.md` defines v1 scope.
 
@@ -133,7 +133,7 @@ var ErrNotAuthenticated = errors.New("not authenticated")
 cmd/kora/           # CLI entry point
 internal/
   auth/             # Auth providers - EFA 0002 governed
-  datasources/      # GitHub, Slack fetching - EFA 0003 governed
+  datasources/      # GitHub fetching - EFA 0003 governed
   models/           # Event, Person, Priority - EFA 0001 governed
   output/           # Formatters (terminal, markdown, JSON)
   config/           # YAML config loading
@@ -166,9 +166,9 @@ See `~/.claude/commands/README.md` for full command documentation.
 
 ## Implementation Priorities
 
-1. **Auth layer first** - GitHub (`gh` CLI), Slack (Keychain)
+1. **Auth layer first** - GitHub (`gh` CLI)
 2. **Models second** - Event interface, Person struct
-3. **Datasources third** - GitHub PRs/Issues, Slack DMs/mentions
+3. **Datasources third** - GitHub PRs/Issues
 4. **CLI fourth** - Cobra commands, output formatting
 5. **Tests throughout** - Don't defer testing
 

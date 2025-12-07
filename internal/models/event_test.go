@@ -33,23 +33,6 @@ func TestEvent_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid Slack DM event",
-			event: Event{
-				Type:           EventTypeSlackDM,
-				Title:          "Question about deployment",
-				Source:         SourceSlack,
-				URL:            "https://slack.com/archives/D123/p123",
-				Author:         Person{Username: "U12345678"},
-				Timestamp:      time.Now(),
-				Priority:       PriorityHigh,
-				RequiresAction: true,
-				Metadata: map[string]any{
-					"workspace": "company",
-				},
-			},
-			wantErr: false,
-		},
-		{
 			name: "empty title fails",
 			event: Event{
 				Type:      EventTypePRReview,
@@ -234,23 +217,6 @@ func TestEvent_Validate(t *testing.T) {
 			errMsg:  "invalid metadata keys for github",
 		},
 		{
-			name: "invalid Slack metadata key fails",
-			event: Event{
-				Type:      EventTypeSlackDM,
-				Title:     "Test",
-				Source:    SourceSlack,
-				URL:       "https://slack.com/archives/D123/p123",
-				Author:    Person{Username: "testuser"},
-				Timestamp: time.Now(),
-				Priority:  PriorityHigh,
-				Metadata: map[string]any{
-					"unknown_key": "value",
-				},
-			},
-			wantErr: true,
-			errMsg:  "invalid metadata keys for slack",
-		},
-		{
 			name: "valid GitHub metadata keys pass",
 			event: Event{
 				Type:      EventTypePRReview,
@@ -267,25 +233,6 @@ func TestEvent_Validate(t *testing.T) {
 					"author_login":       "testuser",
 					"user_relationships": []string{"reviewer"},
 					"labels":             []string{"bug"},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid Slack metadata keys pass",
-			event: Event{
-				Type:      EventTypeSlackDM,
-				Title:     "Test",
-				Source:    SourceSlack,
-				URL:       "https://slack.com/archives/D123/p123",
-				Author:    Person{Username: "testuser"},
-				Timestamp: time.Now(),
-				Priority:  PriorityHigh,
-				Metadata: map[string]any{
-					"workspace":       "company",
-					"channel":         "general",
-					"thread_ts":       "123.456",
-					"is_thread_reply": true,
 				},
 			},
 			wantErr: false,
@@ -332,8 +279,6 @@ func TestEventType_IsValid(t *testing.T) {
 		{"PR mention is valid", EventTypePRMention, true},
 		{"Issue mention is valid", EventTypeIssueMention, true},
 		{"Issue assigned is valid", EventTypeIssueAssigned, true},
-		{"Slack DM is valid", EventTypeSlackDM, true},
-		{"Slack mention is valid", EventTypeSlackMention, true},
 		{"empty string is invalid", EventType(""), false},
 		{"random string is invalid", EventType("random"), false},
 		{"pr_comment is invalid", EventType("pr_comment"), false},
@@ -358,8 +303,6 @@ func TestEventType_Constants(t *testing.T) {
 		{EventTypePRMention, "pr_mention"},
 		{EventTypeIssueMention, "issue_mention"},
 		{EventTypeIssueAssigned, "issue_assigned"},
-		{EventTypeSlackDM, "slack_dm"},
-		{EventTypeSlackMention, "slack_mention"},
 	}
 
 	for _, tt := range tests {
@@ -381,7 +324,6 @@ func TestSource_IsValid(t *testing.T) {
 		want   bool
 	}{
 		{"GitHub is valid", SourceGitHub, true},
-		{"Slack is valid", SourceSlack, true},
 		{"empty string is invalid", Source(""), false},
 		{"random string is invalid", Source("random"), false},
 		{"jira is invalid", Source("jira"), false},
@@ -403,7 +345,6 @@ func TestSource_Constants(t *testing.T) {
 		expected string
 	}{
 		{SourceGitHub, "github"},
-		{SourceSlack, "slack"},
 	}
 
 	for _, tt := range tests {

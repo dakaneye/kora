@@ -14,9 +14,6 @@ func TestDefaultConfig(t *testing.T) {
 	if !cfg.Datasources.GitHub.Enabled {
 		t.Error("GitHub should be enabled by default")
 	}
-	if !cfg.Datasources.Slack.Enabled {
-		t.Error("Slack should be enabled by default")
-	}
 
 	// Digest defaults
 	if cfg.Digest.Window != 16*time.Hour {
@@ -70,8 +67,6 @@ datasources:
     enabled: true
     orgs:
       - test-org
-  slack:
-    enabled: false
 digest:
   window: 8h
   timezone: America/New_York
@@ -94,9 +89,6 @@ security:
 	}
 	if len(cfg.Datasources.GitHub.Orgs) != 1 || cfg.Datasources.GitHub.Orgs[0] != "test-org" {
 		t.Errorf("Unexpected orgs: %v", cfg.Datasources.GitHub.Orgs)
-	}
-	if cfg.Datasources.Slack.Enabled {
-		t.Error("Slack should be disabled")
 	}
 	if cfg.Digest.Window != 8*time.Hour {
 		t.Errorf("Expected 8h window, got %v", cfg.Digest.Window)
@@ -130,12 +122,10 @@ func TestLoad_ValidationError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	// Both datasources disabled - should fail validation
+	// GitHub disabled - should fail validation (no datasources enabled)
 	yaml := `
 datasources:
   github:
-    enabled: false
-  slack:
     enabled: false
 `
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {

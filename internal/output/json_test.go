@@ -263,8 +263,8 @@ func TestJSONFormatter_AllEventTypes(t *testing.T) {
 		string(models.EventTypePRMention),
 		string(models.EventTypeIssueMention),
 		string(models.EventTypeIssueAssigned),
-		string(models.EventTypeSlackDM),
-		string(models.EventTypeSlackMention),
+		string(models.EventTypePRAuthor),
+		string(models.EventTypePRCodeowner),
 	}
 
 	for _, expected := range expectedTypes {

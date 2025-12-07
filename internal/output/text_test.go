@@ -49,12 +49,6 @@ func TestTextFormatter_FormatEventLines(t *testing.T) {
 	if !strings.Contains(out, "[HIGH] PR Review: Review requested: Add feature X") {
 		t.Error("Output should contain formatted PR review event")
 	}
-	if !strings.Contains(out, "[HIGH] Slack DM: Question about deployment") {
-		t.Error("Output should contain formatted Slack DM event")
-	}
-	if !strings.Contains(out, "[MEDIUM] Slack Mention: Mentioned in #general") {
-		t.Error("Output should contain formatted Slack mention event")
-	}
 
 	// Verify URL line (indented, without protocol)
 	if !strings.Contains(out, "github.com/org/repo/pull/123") {
@@ -189,8 +183,6 @@ func TestTextFormatter_ShortTypeLabel(t *testing.T) {
 		{models.EventTypePRMention, "PR Mention"},
 		{models.EventTypeIssueMention, "Issue Mention"},
 		{models.EventTypeIssueAssigned, "Issue"},
-		{models.EventTypeSlackDM, "Slack DM"},
-		{models.EventTypeSlackMention, "Slack Mention"},
 		{models.EventType("unknown"), "unknown"},
 	}
 
@@ -220,8 +212,6 @@ func TestTextFormatter_AllEventTypes(t *testing.T) {
 		"PR Mention:",
 		"Issue Mention:",
 		"Issue:",
-		"Slack DM:",
-		"Slack Mention:",
 	}
 
 	for _, label := range expectedLabels {
@@ -271,16 +261,10 @@ func TestTextFormatter_URLShortening(t *testing.T) {
 	if strings.Contains(out, "https://github.com") {
 		t.Error("Output should not contain https:// prefix")
 	}
-	if strings.Contains(out, "https://workspace.slack.com") {
-		t.Error("Output should not contain https:// prefix")
-	}
 
 	// Verify shortened URLs are present
 	if !strings.Contains(out, "github.com/org/repo") {
 		t.Error("Output should contain shortened GitHub URLs")
-	}
-	if !strings.Contains(out, "workspace.slack.com") {
-		t.Error("Output should contain shortened Slack URLs")
 	}
 }
 

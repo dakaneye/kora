@@ -123,20 +123,3 @@ func WithMetadata(metadata map[string]any) func(*models.Event) {
 		e.Metadata = metadata
 	}
 }
-
-// NewSlackDMEvent creates a valid Slack DM event for testing.
-func NewSlackDMEvent() models.Event {
-	return models.Event{
-		Type:           models.EventTypeSlackDM,
-		Title:          "Test Slack DM",
-		Source:         models.SourceSlack,
-		URL:            "https://slack.com/archives/D123/p1234567890",
-		Author:         models.Person{Username: "U12345678", Name: "Test User"},
-		Timestamp:      time.Now().UTC(),
-		Priority:       models.PriorityHigh,
-		RequiresAction: true,
-		Metadata: map[string]any{
-			"workspace": "test-workspace",
-		},
-	}
-}

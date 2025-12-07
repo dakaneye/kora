@@ -16,8 +16,6 @@ type Service string
 const (
 	// ServiceGitHub identifies the GitHub authentication service.
 	ServiceGitHub Service = "github"
-	// ServiceSlack identifies the Slack authentication service.
-	ServiceSlack Service = "slack"
 )
 
 // AuthProvider manages authentication for a specific service.

@@ -81,7 +81,7 @@ func TestFetchOptions_Validate(t *testing.T) {
 func TestFetchFilter(t *testing.T) {
 	// FetchFilter has no validation, just ensure it can hold data correctly
 	filter := &FetchFilter{
-		EventTypes:     []models.EventType{models.EventTypePRReview, models.EventTypeSlackDM},
+		EventTypes:     []models.EventType{models.EventTypePRReview, models.EventTypePRMention},
 		MinPriority:    models.PriorityHigh,
 		RequiresAction: true,
 	}

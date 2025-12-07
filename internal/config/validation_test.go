@@ -21,23 +21,8 @@ func TestConfig_Validate(t *testing.T) {
 			name: "no datasources enabled",
 			modify: func(c *Config) {
 				c.Datasources.GitHub.Enabled = false
-				c.Datasources.Slack.Enabled = false
 			},
 			wantErr: true,
-		},
-		{
-			name: "only github enabled",
-			modify: func(c *Config) {
-				c.Datasources.Slack.Enabled = false
-			},
-			wantErr: false,
-		},
-		{
-			name: "only slack enabled",
-			modify: func(c *Config) {
-				c.Datasources.GitHub.Enabled = false
-			},
-			wantErr: false,
 		},
 		{
 			name: "invalid format",
@@ -123,34 +108,16 @@ func TestDatasourcesConfig_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "both enabled",
+			name: "github enabled",
 			cfg: DatasourcesConfig{
 				GitHub: GitHubConfig{Enabled: true},
-				Slack:  SlackConfig{Enabled: true},
 			},
 			wantErr: false,
 		},
 		{
-			name: "github only",
-			cfg: DatasourcesConfig{
-				GitHub: GitHubConfig{Enabled: true},
-				Slack:  SlackConfig{Enabled: false},
-			},
-			wantErr: false,
-		},
-		{
-			name: "slack only",
+			name: "github disabled",
 			cfg: DatasourcesConfig{
 				GitHub: GitHubConfig{Enabled: false},
-				Slack:  SlackConfig{Enabled: true},
-			},
-			wantErr: false,
-		},
-		{
-			name: "none enabled",
-			cfg: DatasourcesConfig{
-				GitHub: GitHubConfig{Enabled: false},
-				Slack:  SlackConfig{Enabled: false},
 			},
 			wantErr: true,
 		},

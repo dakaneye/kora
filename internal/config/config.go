@@ -22,7 +22,6 @@ type Config struct {
 // DatasourcesConfig configures which datasources are enabled.
 type DatasourcesConfig struct {
 	GitHub GitHubConfig `yaml:"github"`
-	Slack  SlackConfig  `yaml:"slack"`
 }
 
 // GitHubConfig configures the GitHub datasource.
@@ -33,16 +32,6 @@ type GitHubConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Orgs limits searches to specific organizations (empty = all).
 	Orgs []string `yaml:"orgs,omitempty"`
-}
-
-// SlackConfig configures the Slack datasource.
-//
-//nolint:govet // Field order prioritizes semantic grouping over memory alignment
-type SlackConfig struct {
-	// Enabled controls whether Slack datasource is active.
-	Enabled bool `yaml:"enabled"`
-	// Workspaces limits to specific workspaces (empty = all).
-	Workspaces []string `yaml:"workspaces,omitempty"`
 }
 
 // DigestConfig configures digest generation behavior.
@@ -79,9 +68,6 @@ func DefaultConfig() *Config {
 	return &Config{
 		Datasources: DatasourcesConfig{
 			GitHub: GitHubConfig{
-				Enabled: true,
-			},
-			Slack: SlackConfig{
 				Enabled: true,
 			},
 		},

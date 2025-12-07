@@ -86,10 +86,6 @@ func (f *TextFormatter) shortTypeLabel(t models.EventType) string {
 		return "Issue Mention"
 	case models.EventTypeIssueAssigned:
 		return "Issue"
-	case models.EventTypeSlackDM:
-		return "Slack DM"
-	case models.EventTypeSlackMention:
-		return "Slack Mention"
 	default:
 		return string(t)
 	}

@@ -6,7 +6,7 @@ agents: golang-pro, documentation-engineer, prompt-engineer
 
 # EFA 0003: DataSource Interface Ground Truth
 
-This EFA defines the DataSource interface for fetching events from external services (GitHub, Slack). It specifies how datasources integrate with the authentication layer (EFA 0002) and produce normalized events (EFA 0001).
+This EFA defines the DataSource interface for fetching events from external services (GitHub and future datasources). It specifies how datasources integrate with the authentication layer (EFA 0002) and produce normalized events (EFA 0001).
 
 ## Motivation & Prior Art
 
@@ -45,15 +45,15 @@ Datasources are the bridge between external services and Kora's event model. Wit
 │           ┌───────────────────┼────────────────────┐                    │
 │           ▼                   ▼                    ▼                    │
 │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐           │
-│  │ GitHubDataSource│ │ SlackDataSource │ │ Future Sources  │           │
-│  │                 │ │                 │ │                 │           │
+│  │ GitHubDataSource│ │ Future Sources  │ │ Future Sources  │           │
+│  │                 │ │ (Linear)        │ │ (Calendar)      │           │
 │  │ AuthProvider ●──┼─┤ AuthProvider ●──┼─┤ AuthProvider ●  │           │
 │  │                 │ │                 │ │                 │           │
 │  └────────┬────────┘ └────────┬────────┘ └─────────────────┘           │
 │           │                   │                                         │
 │           ▼                   ▼                                         │
 │    ┌────────────┐       ┌────────────┐                                 │
-│    │ gh CLI API │       │ Slack API  │                                 │
+│    │ gh CLI API │       │ Future APIs│                                 │
 │    └────────────┘       └────────────┘                                 │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -76,7 +76,7 @@ import (
 )
 
 // DataSource fetches events from an external service.
-// Each service (GitHub, Slack) has one DataSource implementation.
+// Each service (GitHub, Linear, Calendar) has one DataSource implementation.
 //
 // Implementations must:
 //   - Respect context cancellation at all stages
@@ -88,7 +88,7 @@ import (
 // IT IS FORBIDDEN TO CHANGE THIS INTERFACE without updating EFA 0003.
 type DataSource interface {
 	// Name returns a human-readable identifier for logging.
-	// Format: lowercase with hyphens (e.g., "github-prs", "slack-mentions").
+	// Format: lowercase with hyphens (e.g., "github-prs", "linear-issues").
 	Name() string
 
 	// Service returns which service this datasource connects to.

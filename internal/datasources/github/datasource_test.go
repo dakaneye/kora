@@ -24,8 +24,8 @@ func TestNewDataSource(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:        "invalid slack auth provider",
-			authService: auth.ServiceSlack,
+			name:        "invalid auth provider",
+			authService: auth.Service("invalid"),
 			wantErr:     true,
 		},
 	}
@@ -613,7 +613,7 @@ func TestFetch_AuthFailure(t *testing.T) {
 
 // TestFetch_WrongAuthProvider verifies error when non-GitHub auth provider is used.
 func TestFetch_WrongAuthProvider(t *testing.T) {
-	authProvider := newMockAuthProvider(auth.ServiceSlack)
+	authProvider := newMockAuthProvider(auth.Service("invalid"))
 
 	_, err := NewDataSource(authProvider)
 	if err == nil {

@@ -148,12 +148,12 @@ func TestDataSourceRunner_Run_AllSuccess(t *testing.T) {
 		},
 		&mockDataSource{
 			name:    "source-2",
-			service: models.SourceSlack,
+			service: models.SourceGitHub,
 			events: []models.Event{
 				{
-					Type:      models.EventTypeSlackDM,
+					Type:      models.EventTypePRMention,
 					Title:     "Event 2",
-					Source:    models.SourceSlack,
+					Source:    models.SourceGitHub,
 					Timestamp: now.Add(-1 * time.Hour),
 				},
 			},
@@ -204,7 +204,7 @@ func TestDataSourceRunner_Run_PartialSuccess(t *testing.T) {
 		},
 		&mockDataSource{
 			name:    "failing-source",
-			service: models.SourceSlack,
+			service: models.SourceGitHub,
 			err:     errors.New("fetch failed"),
 		},
 	}
@@ -245,7 +245,7 @@ func TestDataSourceRunner_Run_AllFailed(t *testing.T) {
 		},
 		&mockDataSource{
 			name:    "failing-2",
-			service: models.SourceSlack,
+			service: models.SourceGitHub,
 			err:     errors.New("error 2"),
 		},
 	}
@@ -320,8 +320,8 @@ func TestDataSourceRunner_Run_Concurrent(t *testing.T) {
 		},
 		&mockDataSource{
 			name:       "slow-2",
-			service:    models.SourceSlack,
-			events:     []models.Event{{Type: models.EventTypeSlackDM, Title: "E2", Source: models.SourceSlack, Timestamp: time.Now()}},
+			service:    models.SourceGitHub,
+			events:     []models.Event{{Type: models.EventTypePRMention, Title: "E2", Source: models.SourceGitHub, Timestamp: time.Now()}},
 			fetchDelay: 50 * time.Millisecond,
 		},
 		&mockDataSource{
@@ -366,9 +366,9 @@ func TestDataSourceRunner_Run_EventsSortedByTimestamp(t *testing.T) {
 		},
 		&mockDataSource{
 			name:    "source-2",
-			service: models.SourceSlack,
+			service: models.SourceGitHub,
 			events: []models.Event{
-				{Type: models.EventTypeSlackDM, Title: "Oldest", Source: models.SourceSlack, Timestamp: now.Add(-3 * time.Hour)},
+				{Type: models.EventTypePRMention, Title: "Oldest", Source: models.SourceGitHub, Timestamp: now.Add(-3 * time.Hour)},
 			},
 		},
 		&mockDataSource{

@@ -79,7 +79,7 @@ Without explicit boundaries between Kora and Claude's responsibilities, Claude m
                           ┌───────────────────┼───────────────────┐
                           ▼                   ▼                   ▼
                    ┌────────────┐      ┌────────────┐      ┌────────────┐
-                   │   GitHub   │      │   Slack    │      │  Future    │
+                   │   GitHub   │      │ Future     │      │  Future    │
                    │    API     │      │    API     │      │  Sources   │
                    └────────────┘      └────────────┘      └────────────┘
 ```
@@ -110,7 +110,7 @@ Every event includes ALL metadata defined in EFA 0001:
 - Reactions, timeline
 - Full body text
 
-**Slack:**
+**Future datasources (Linear, Calendar):**
 - DMs and mentions
 - Thread context
 - Workspace and channel info
@@ -202,7 +202,7 @@ for _, ds := range datasources {
 }
 ```
 
-**No sequential dependencies** between datasources. GitHub and Slack fetch in parallel.
+**No sequential dependencies** between datasources. Multiple datasources fetch in parallel.
 
 #### Efficiency Guidelines
 
@@ -221,11 +221,11 @@ type RunResult struct {
     SourceErrors map[string]error  // Which sources failed
 }
 
-// Example: GitHub succeeds, Slack fails
+// Example: GitHub succeeds, another fails
 result := &RunResult{
     Events: githubEvents,  // User still gets GitHub data
     SourceErrors: map[string]error{
-        "slack": ErrServiceUnavailable,  // Reported but not blocking
+        "calendar": ErrServiceUnavailable,  // Reported but not blocking
     },
 }
 ```
@@ -296,7 +296,7 @@ kora digest --since 16h --format json
       }
     },
     {
-      "type": "slack_dm",
+      "type": "calendar_meeting",
       "title": "Question about deployment",
       "priority": 2,
       "metadata": {
@@ -312,7 +312,7 @@ kora digest --since 16h --format json
 **Claude processes** (internally):
 - User mentioned auth project is priority -> elevate OAuth PR
 - User's CI is failing -> critical, surface first
-- Slack DM from manager -> important relationship
+- Calendar meeting reminder -> important relationship
 - 5 old PR mentions -> likely stale, deprioritize
 
 **Claude responds**:
@@ -572,7 +572,7 @@ result = kora.digest(since="16h")
 
 if result.source_errors:
     # Inform user but still show available data
-    "Note: Couldn't reach Slack. Here's what I found on GitHub..."
+    "Note: Couldn't reach Calendar. Here's what I found on GitHub..."
 
 # Process available events
 for event in result.events:
