@@ -84,8 +84,10 @@ func TestFetch_AllSearchesSucceed(t *testing.T) {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
+	// Use a fixed Since time that's before all test data timestamps.
+	// Test data has timestamps on 2025-12-06 starting at 03:00 UTC.
 	opts := datasources.FetchOptions{
-		Since: time.Now().Add(-24 * time.Hour),
+		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
 
 	result, err := ds.Fetch(ctx, opts)

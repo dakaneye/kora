@@ -14,7 +14,7 @@ ifeq ($(GOBIN),)
 	GOBIN := $(shell go env GOPATH)/bin
 endif
 
-.PHONY: all build test test-integration test-coverage lint security-scan install clean help
+.PHONY: all build test test-integration test-coverage lint security-scan install install-mcp clean help
 
 all: lint test build
 
@@ -73,6 +73,10 @@ install: build
 	@mkdir -p ~/.local/bin
 	@cp $(BUILD_DIR)/$(BINARY_NAME) ~/.local/bin/
 	@echo "Installed to ~/.local/bin/$(BINARY_NAME)"
+
+## install-mcp: Install Kora as MCP tool for Claude Code
+install-mcp: install
+	@./scripts/install-mcp.sh
 
 ## clean: Remove build artifacts
 clean:
