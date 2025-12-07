@@ -169,18 +169,3 @@ func TestGraphQLErrorList_Error_Single(t *testing.T) {
 		t.Errorf("unexpected error message: %s", err.Error())
 	}
 }
-
-func TestMustMarshalVariables_Empty(t *testing.T) {
-	result := mustMarshalVariables(nil)
-	if result != "{}" {
-		t.Errorf("expected {}, got %s", result)
-	}
-}
-
-func TestMustMarshalVariables_WithValues(t *testing.T) {
-	vars := map[string]any{"key": "value"}
-	result := mustMarshalVariables(vars)
-	if result != `{"key":"value"}` {
-		t.Errorf("expected {\"key\":\"value\"}, got %s", result)
-	}
-}

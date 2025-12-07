@@ -58,11 +58,31 @@ type GraphQLResponse struct {
 //	`, map[string]any{"owner": "org", "repo": "repo", "number": 123})
 func (c *GraphQLClient) Execute(ctx context.Context, query string, variables map[string]any) (json.RawMessage, error) {
 	// Execute via gh api graphql
-	// The -f flag passes the input as a field in the request body
-	out, err := c.cred.ExecuteAPI(ctx, "graphql",
-		"-f", fmt.Sprintf("query=%s", query),
-		"-f", fmt.Sprintf("variables=%s", mustMarshalVariables(variables)),
-	)
+	// Per gh documentation: all fields other than "query" and "operationName"
+	// are interpreted as GraphQL variables.
+	// Use -f for string values, -F for typed values (int, bool, etc.)
+	args := []string{"-f", fmt.Sprintf("query=%s", query)}
+
+	// Add each variable as a separate flag
+	for k, v := range variables {
+		switch val := v.(type) {
+		case string:
+			// -f for string values (no type conversion)
+			args = append(args, "-f", fmt.Sprintf("%s=%s", k, val))
+		case int, int64, float64, bool:
+			// -F for typed values (gh does magic type conversion)
+			args = append(args, "-F", fmt.Sprintf("%s=%v", k, val))
+		default:
+			// For complex types, serialize to JSON and use -f
+			jsonVal, err := json.Marshal(val)
+			if err != nil {
+				return nil, fmt.Errorf("marshal variable %s: %w", k, err)
+			}
+			args = append(args, "-f", fmt.Sprintf("%s=%s", k, string(jsonVal)))
+		}
+	}
+
+	out, err := c.cred.ExecuteAPI(ctx, "graphql", args...)
 	if err != nil {
 		// Check for common error patterns
 		// SECURITY: Don't include request body in errors to prevent information disclosure
@@ -114,18 +134,6 @@ func (e *GraphQLErrorList) IsNotFound() bool {
 		}
 	}
 	return false
-}
-
-// mustMarshalVariables marshals variables to JSON, returning "{}" on error.
-func mustMarshalVariables(vars map[string]any) string {
-	if len(vars) == 0 {
-		return "{}"
-	}
-	b, err := json.Marshal(vars)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
 }
 
 // PRQuery is the GraphQL query for fetching rich PR context.
@@ -350,9 +358,10 @@ query IssueContext($owner: String!, $repo: String!, $number: Int!) {
 
 // SearchPRsQuery searches for PRs matching criteria and returns basic info.
 // Use PRQuery to fetch full context for each PR.
+// Note: Variable is named $searchQuery to avoid conflict with gh's reserved "query" field.
 const SearchPRsQuery = `
-query SearchPRs($query: String!, $first: Int!) {
-  search(query: $query, type: ISSUE, first: $first) {
+query SearchPRs($searchQuery: String!, $first: Int!) {
+  search(query: $searchQuery, type: ISSUE, first: $first) {
     issueCount
     nodes {
       ... on PullRequest {
@@ -378,9 +387,10 @@ query SearchPRs($query: String!, $first: Int!) {
 
 // SearchIssuesQuery searches for issues matching criteria and returns basic info.
 // Use IssueQuery to fetch full context for each issue.
+// Note: Variable is named $searchQuery to avoid conflict with gh's reserved "query" field.
 const SearchIssuesQuery = `
-query SearchIssues($query: String!, $first: Int!) {
-  search(query: $query, type: ISSUE, first: $first) {
+query SearchIssues($searchQuery: String!, $first: Int!) {
+  search(query: $searchQuery, type: ISSUE, first: $first) {
     issueCount
     nodes {
       ... on Issue {

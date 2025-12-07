@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/dakaneye/kora/internal/auth"
 	ghauth "github.com/dakaneye/kora/internal/auth/github"
@@ -118,32 +119,49 @@ func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint
 // handleGraphQL processes GraphQL API calls.
 func (m *mockGitHubDelegatedCredential) handleGraphQL(args []string) ([]byte, error) {
 	// Extract query and variables from args
-	var queryStr, varsStr string
-	for i, arg := range args {
-		if arg == "-f" && i+1 < len(args) {
+	// Variables are now passed individually as -f key=value or -F key=value
+	// The FIRST "query=" is the GraphQL query, subsequent "query=" are variables
+	var queryStr string
+	queryFound := false
+	vars := make(map[string]string)
+
+	for i := 0; i < len(args); i++ {
+		if (args[i] == "-f" || args[i] == "-F") && i+1 < len(args) {
 			val := args[i+1]
-			if len(val) > 6 && val[:6] == "query=" {
-				queryStr = val[6:]
-			} else if len(val) > 10 && val[:10] == "variables=" {
-				varsStr = val[10:]
+			idx := strings.Index(val, "=")
+			if idx > 0 {
+				key := val[:idx]
+				value := val[idx+1:]
+				if key == "query" && !queryFound {
+					// First "query=" is the GraphQL query itself
+					queryStr = value
+					queryFound = true
+				} else {
+					// All other fields are GraphQL variables
+					vars[key] = value
+				}
 			}
+			i++ // Skip the value argument
 		}
 	}
 
 	// Determine the type of GraphQL query based on content
 	var key string
 	switch {
-	case contains(queryStr, "SearchPRs") || contains(queryStr, "search(query"):
-		// It's a search query, determine type from variables
-		key = determineSearchKey(varsStr)
-	case contains(queryStr, "PRContext") || contains(queryStr, "pullRequest(number"):
+	case contains(queryStr, "SearchPRs"):
+		// It's a PR search query, determine type from the searchQuery variable
+		key = determineSearchKey(vars["searchQuery"])
+	case contains(queryStr, "SearchIssues"):
+		// It's an issue search query, determine type from the searchQuery variable
+		key = determineSearchKey(vars["searchQuery"])
+	case contains(queryStr, "PRContext"):
 		// It's a PR context query
 		key = "graphql:pr:context"
-	case contains(queryStr, "IssueContext") || contains(queryStr, "issue(number"):
+	case contains(queryStr, "IssueContext"):
 		// It's an issue context query
 		key = "graphql:issue:context"
 	default:
-		return nil, fmt.Errorf("mock: unknown graphql query type")
+		return nil, fmt.Errorf("mock: unknown graphql query type, queryStr=%q, vars=%v", queryStr[:min(100, len(queryStr))], vars)
 	}
 
 	resp, ok := m.responses[key]
@@ -209,30 +227,22 @@ func (m *mockGitHubDelegatedCredential) setGraphQLError(key string, err error) {
 
 // contains is a simple substring check helper
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, substr)
 }
 
 // determineSearchKey maps GraphQL search query variables to a mock response key.
-func determineSearchKey(varsStr string) string {
+// queryVar is the value of the $query GraphQL variable (the GitHub search query string).
+func determineSearchKey(queryVar string) string {
 	switch {
-	case contains(varsStr, "review-requested"):
+	case contains(queryVar, "review-requested"):
 		return "graphql:search:pr-review"
-	case contains(varsStr, "mentions") && contains(varsStr, "type:pr"):
+	case contains(queryVar, "mentions") && contains(queryVar, "type:pr"):
 		return "graphql:search:pr-mention"
-	case contains(varsStr, "mentions") && contains(varsStr, "type:issue"):
+	case contains(queryVar, "mentions") && contains(queryVar, "type:issue"):
 		return "graphql:search:issue-mention"
-	case contains(varsStr, "assignee"):
+	case contains(queryVar, "assignee"):
 		return "graphql:search:issue-assigned"
-	case contains(varsStr, "author:"):
+	case contains(queryVar, "author:"):
 		return "graphql:search:pr-author"
 	default:
 		return "graphql:search:default"

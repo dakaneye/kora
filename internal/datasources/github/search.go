@@ -148,9 +148,10 @@ func searchPRs(ctx context.Context, client *GraphQLClient, query string, limit i
 		limit = 100 // Default limit
 	}
 
+	// Variable named "searchQuery" to avoid conflict with gh's reserved "query" field
 	variables := map[string]any{
-		"query": query,
-		"first": limit,
+		"searchQuery": query,
+		"first":       limit,
 	}
 
 	data, err := client.Execute(ctx, SearchPRsQuery, variables)
@@ -173,9 +174,10 @@ func searchIssues(ctx context.Context, client *GraphQLClient, query string, limi
 		limit = 100 // Default limit
 	}
 
+	// Variable named "searchQuery" to avoid conflict with gh's reserved "query" field
 	variables := map[string]any{
-		"query": query,
-		"first": limit,
+		"searchQuery": query,
+		"first":       limit,
 	}
 
 	data, err := client.Execute(ctx, SearchIssuesQuery, variables)
