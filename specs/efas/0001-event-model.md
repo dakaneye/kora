@@ -65,9 +65,13 @@ type Event struct {
 type EventType string
 
 const (
-    // GitHub event types
+    // GitHub PR event types
     EventTypePRReview      EventType = "pr_review"       // Review requested on a PR
     EventTypePRMention     EventType = "pr_mention"      // Mentioned in a PR
+    EventTypePRAuthor      EventType = "pr_author"       // User's own PR (for status tracking)
+    EventTypePRCodeowner   EventType = "pr_codeowner"    // User owns changed files via CODEOWNERS
+
+    // GitHub Issue event types
     EventTypeIssueMention  EventType = "issue_mention"   // Mentioned in an issue
     EventTypeIssueAssigned EventType = "issue_assigned"  // Assigned to an issue
 
@@ -80,6 +84,8 @@ const (
 var validEventTypes = map[EventType]struct{}{
     EventTypePRReview:      {},
     EventTypePRMention:     {},
+    EventTypePRAuthor:      {},
+    EventTypePRCodeowner:   {},
     EventTypeIssueMention:  {},
     EventTypeIssueAssigned: {},
     EventTypeSlackDM:       {},
@@ -155,15 +161,62 @@ type Person struct {
 
 Each source may include specific metadata. These keys are the ONLY allowed metadata keys per source.
 
-#### GitHub Metadata
+#### GitHub PR Metadata
+
+Rich context for PRs to enable Claude to assess relevance without additional queries.
 
 | Key | Type | Description |
 |-----|------|-------------|
 | `repo` | string | Full repo name (e.g., "owner/repo") |
-| `number` | int | PR or issue number |
-| `state` | string | PR/issue state: "open", "closed", "merged" |
-| `review_state` | string | For pr_review: "pending", "approved", "changes_requested" |
-| `labels` | []string | Issue/PR labels |
+| `number` | int | PR number |
+| `state` | string | PR state: "open", "closed", "merged" |
+| `author_login` | string | PR author's GitHub username |
+| `assignees` | []string | Assigned usernames |
+| `user_relationships` | []string | Why user sees this: "author", "reviewer", "mentioned", "codeowner", "assignee" |
+| `review_requests` | []map | Review requests: `[{login, type: "user"\|"team", team_slug?}]` |
+| `reviews` | []map | Reviews: `[{author, state: "approved"\|"changes_requested"\|"commented"\|"pending"}]` |
+| `ci_checks` | []map | CI status: `[{name, status: "queued"\|"in_progress"\|"completed", conclusion?}]` |
+| `ci_rollup` | string | Overall CI: "success", "failure", "pending", "neutral" |
+| `files_changed` | []map | Changed files: `[{path, additions, deletions}]` |
+| `files_changed_count` | int | Total files changed |
+| `additions` | int | Total lines added |
+| `deletions` | int | Total lines deleted |
+| `labels` | []string | PR labels |
+| `milestone` | string | Milestone name if set |
+| `linked_issues` | []string | Linked issue URLs |
+| `body` | string | PR description (truncated to 500 chars) |
+| `comments_count` | int | Total discussion comments |
+| `review_comments_count` | int | Inline review comments |
+| `unresolved_threads` | int | Count of unresolved review threads |
+| `is_draft` | bool | Whether PR is a draft |
+| `mergeable` | string | Merge status: "mergeable", "conflicting", "unknown" |
+| `head_ref` | string | Source branch name |
+| `base_ref` | string | Target branch name |
+| `created_at` | string | RFC3339 creation timestamp |
+| `updated_at` | string | RFC3339 last update timestamp |
+
+#### GitHub Issue Metadata
+
+Rich context for issues to provide UI-level detail.
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `repo` | string | Full repo name (e.g., "owner/repo") |
+| `number` | int | Issue number |
+| `state` | string | Issue state: "open", "closed" |
+| `author_login` | string | Issue author's GitHub username |
+| `assignees` | []string | Assigned usernames |
+| `user_relationships` | []string | Why user sees this: "assignee", "mentioned" |
+| `labels` | []string | Issue labels |
+| `milestone` | string | Milestone name if set |
+| `body` | string | Issue description (truncated to 500 chars) |
+| `comments` | []map | Recent comments: `[{author, body, created_at}]` (max 10) |
+| `comments_count` | int | Total comment count |
+| `linked_prs` | []string | PRs that reference this issue |
+| `reactions` | map | Reaction counts: `{"+1": n, "-1": n, "heart": n, ...}` |
+| `timeline_summary` | []map | Recent activity: `[{type, actor, created_at}]` |
+| `created_at` | string | RFC3339 creation timestamp |
+| `updated_at` | string | RFC3339 last update timestamp |
 
 #### Slack Metadata
 
@@ -194,11 +247,40 @@ Events MUST satisfy these invariants:
 // IT IS FORBIDDEN TO ADD KEYS without updating this map AND the EFA table above.
 var allowedMetadataKeys = map[Source]map[string]struct{}{
     SourceGitHub: {
-        "repo":         {},
-        "number":       {},
-        "state":        {},
-        "review_state": {},
-        "labels":       {},
+        // Common fields
+        "repo":                 {},
+        "number":               {},
+        "state":                {},
+        "author_login":         {},
+        "assignees":            {},
+        "user_relationships":   {},
+        "labels":               {},
+        "milestone":            {},
+        "body":                 {},
+        "comments_count":       {},
+        "created_at":           {},
+        "updated_at":           {},
+        // PR-specific fields
+        "review_requests":      {},
+        "reviews":              {},
+        "ci_checks":            {},
+        "ci_rollup":            {},
+        "files_changed":        {},
+        "files_changed_count":  {},
+        "additions":            {},
+        "deletions":            {},
+        "linked_issues":        {},
+        "review_comments_count": {},
+        "unresolved_threads":   {},
+        "is_draft":             {},
+        "mergeable":            {},
+        "head_ref":             {},
+        "base_ref":             {},
+        // Issue-specific fields
+        "comments":             {},
+        "linked_prs":           {},
+        "reactions":            {},
+        "timeline_summary":     {},
     },
     SourceSlack: {
         "workspace":       {},
@@ -287,19 +369,46 @@ func (e Event) validateMetadataKeys() error {
 
 Datasources MUST assign priority according to these rules:
 
-| Condition | Priority |
-|-----------|----------|
-| PR review requested + PR is blocking | 1 (Critical) |
-| PR review requested | 2 (High) |
-| Direct message / DM | 2 (High) |
-| @mention in issue/PR/channel | 3 (Medium) |
-| Issue assigned | 3 (Medium) |
-| Thread reply | 4 (Low) |
-| FYI / informational | 5 (Info) |
+| Condition | Priority | EventType |
+|-----------|----------|-----------|
+| PR author + CI failing | 1 (Critical) | pr_author |
+| PR review requested (direct user) | 2 (High) | pr_review |
+| PR author + changes requested | 2 (High) | pr_author |
+| Direct message / DM | 2 (High) | slack_dm |
+| PR review requested (team) | 3 (Medium) | pr_review |
+| PR author (pending/approved) | 3 (Medium) | pr_author |
+| PR codeowner (not explicit reviewer) | 3 (Medium) | pr_codeowner |
+| @mention in issue/PR/channel | 3 (Medium) | *_mention |
+| Issue assigned | 3 (Medium) | issue_assigned |
+| Thread reply | 4 (Low) | slack_mention |
+| FYI / informational | 5 (Info) | - |
+
+**Priority Calculation for PR Author:**
+```go
+func calculatePRAuthorPriority(ciRollup string, hasChangesRequested bool) Priority {
+    if ciRollup == "failure" {
+        return PriorityCritical // 1 - CI broken, blocks merge
+    }
+    if hasChangesRequested {
+        return PriorityHigh // 2 - Reviewer waiting
+    }
+    return PriorityMedium // 3 - PR in progress
+}
+```
+
+**Priority Calculation for PR Review:**
+```go
+func calculatePRReviewPriority(reviewRequestType string) Priority {
+    if reviewRequestType == "user" {
+        return PriorityHigh // 2 - Direct request
+    }
+    return PriorityMedium // 3 - Team request
+}
+```
 
 ### Example Events
 
-**GitHub PR Review Request:**
+**GitHub PR Review Request (Rich Context):**
 ```json
 {
   "type": "pr_review",
@@ -317,8 +426,118 @@ Datasources MUST assign priority according to these rules:
     "repo": "org/repo",
     "number": 123,
     "state": "open",
-    "review_state": "pending",
-    "labels": ["security", "core"]
+    "author_login": "janedev",
+    "assignees": ["janedev"],
+    "user_relationships": ["reviewer"],
+    "review_requests": [
+      {"login": "currentuser", "type": "user"},
+      {"login": "ecosystems-team", "type": "team", "team_slug": "org/ecosystems-team"}
+    ],
+    "reviews": [
+      {"author": "otherdev", "state": "commented"}
+    ],
+    "ci_checks": [
+      {"name": "build", "status": "completed", "conclusion": "success"},
+      {"name": "test", "status": "completed", "conclusion": "success"}
+    ],
+    "ci_rollup": "success",
+    "files_changed": [
+      {"path": "src/rebuild/java.go", "additions": 150, "deletions": 20},
+      {"path": "src/rebuild/java_test.go", "additions": 200, "deletions": 0}
+    ],
+    "files_changed_count": 2,
+    "additions": 350,
+    "deletions": 20,
+    "labels": ["security", "core"],
+    "milestone": "v2.0",
+    "linked_issues": ["https://github.com/org/repo/issues/100"],
+    "body": "This PR adds secure rebuild functionality for core-java packages...",
+    "comments_count": 3,
+    "review_comments_count": 5,
+    "unresolved_threads": 1,
+    "is_draft": false,
+    "mergeable": "mergeable",
+    "head_ref": "feature/secure-rebuild",
+    "base_ref": "main",
+    "created_at": "2025-12-05T10:00:00Z",
+    "updated_at": "2025-12-06T07:00:00Z"
+  }
+}
+```
+
+**GitHub PR Author (Own PR with Failing CI):**
+```json
+{
+  "type": "pr_author",
+  "title": "Your PR: Fix authentication flow",
+  "source": "github",
+  "url": "https://github.com/org/repo/pull/456",
+  "author": {
+    "name": "Current User",
+    "username": "currentuser"
+  },
+  "timestamp": "2025-12-06T08:00:00Z",
+  "priority": 1,
+  "requires_action": true,
+  "metadata": {
+    "repo": "org/repo",
+    "number": 456,
+    "state": "open",
+    "author_login": "currentuser",
+    "user_relationships": ["author"],
+    "reviews": [
+      {"author": "reviewer1", "state": "changes_requested"}
+    ],
+    "ci_checks": [
+      {"name": "build", "status": "completed", "conclusion": "success"},
+      {"name": "test", "status": "completed", "conclusion": "failure"}
+    ],
+    "ci_rollup": "failure",
+    "files_changed_count": 5,
+    "additions": 100,
+    "deletions": 50,
+    "unresolved_threads": 2,
+    "is_draft": false
+  }
+}
+```
+
+**GitHub Issue Assigned (Rich Context):**
+```json
+{
+  "type": "issue_assigned",
+  "title": "Assigned: Customer onboarding - Acme Corp",
+  "source": "github",
+  "url": "https://github.com/org/internal-dev/issues/789",
+  "author": {
+    "name": "Sales Rep",
+    "username": "salesrep"
+  },
+  "timestamp": "2025-12-06T06:00:00Z",
+  "priority": 3,
+  "requires_action": true,
+  "metadata": {
+    "repo": "org/internal-dev",
+    "number": 789,
+    "state": "open",
+    "author_login": "salesrep",
+    "assignees": ["currentuser"],
+    "user_relationships": ["assignee"],
+    "labels": ["customer-onboarding", "javascript"],
+    "milestone": "Q4-2025",
+    "body": "### Customer Name\nAcme Corp\n### ARR\n$100,000\n### Timeline\nQ4 close...",
+    "comments": [
+      {"author": "salesrep", "body": "@currentuser can you run coverage analysis?", "created_at": "2025-12-06T05:00:00Z"},
+      {"author": "pm", "body": "Priority customer, please expedite", "created_at": "2025-12-06T05:30:00Z"}
+    ],
+    "comments_count": 2,
+    "linked_prs": [],
+    "reactions": {"+1": 2, "eyes": 1},
+    "timeline_summary": [
+      {"type": "assigned", "actor": "pm", "created_at": "2025-12-06T04:00:00Z"}
+    ],
+    "created_at": "2025-12-06T04:00:00Z",
+    "updated_at": "2025-12-06T06:00:00Z"
   }
 }
 ```
