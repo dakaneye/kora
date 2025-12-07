@@ -68,11 +68,12 @@ func (d *DataSource) fetchPRReviewRequests(ctx context.Context, cred githubCrede
 			Priority:       models.PriorityHigh, // PR reviews are high priority per EFA 0001
 			RequiresAction: true,
 			Metadata: map[string]any{
-				"repo":         extractRepoName(item.RepositoryURL),
-				"number":       item.Number,
-				"state":        item.State,
-				"review_state": "pending",
-				"labels":       extractLabels(item.Labels),
+				"repo":               extractRepoName(item.RepositoryURL),
+				"number":             item.Number,
+				"state":              item.State,
+				"author_login":       item.User.Login,
+				"user_relationships": []string{"reviewer"},
+				"labels":             extractLabels(item.Labels),
 			},
 		}
 		events = append(events, event)
@@ -134,10 +135,12 @@ func (d *DataSource) fetchPRMentions(ctx context.Context, cred githubCredential,
 			Priority:       models.PriorityMedium, // Mentions are medium priority per EFA 0001
 			RequiresAction: false,                 // May or may not need action
 			Metadata: map[string]any{
-				"repo":   extractRepoName(item.RepositoryURL),
-				"number": item.Number,
-				"state":  item.State,
-				"labels": extractLabels(item.Labels),
+				"repo":               extractRepoName(item.RepositoryURL),
+				"number":             item.Number,
+				"state":              item.State,
+				"author_login":       item.User.Login,
+				"user_relationships": []string{"mentioned"},
+				"labels":             extractLabels(item.Labels),
 			},
 		}
 		events = append(events, event)

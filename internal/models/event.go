@@ -52,6 +52,10 @@ const (
 	EventTypePRReview EventType = "pr_review"
 	// EventTypePRMention indicates a mention in a PR.
 	EventTypePRMention EventType = "pr_mention"
+	// EventTypePRAuthor indicates user's own PR (for status tracking).
+	EventTypePRAuthor EventType = "pr_author"
+	// EventTypePRCodeowner indicates user owns changed files via CODEOWNERS.
+	EventTypePRCodeowner EventType = "pr_codeowner"
 	// EventTypeIssueMention indicates a mention in an issue.
 	EventTypeIssueMention EventType = "issue_mention"
 	// EventTypeIssueAssigned indicates assignment to an issue.
@@ -71,6 +75,8 @@ const (
 var validEventTypes = map[EventType]struct{}{
 	EventTypePRReview:      {},
 	EventTypePRMention:     {},
+	EventTypePRAuthor:      {},
+	EventTypePRCodeowner:   {},
 	EventTypeIssueMention:  {},
 	EventTypeIssueAssigned: {},
 	EventTypeSlackDM:       {},

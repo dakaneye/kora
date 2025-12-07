@@ -154,8 +154,9 @@ func TestFetch_PartialSuccess(t *testing.T) {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
+	// Use fixed time before test data timestamps (2025-12-06 03:00 UTC)
 	opts := datasources.FetchOptions{
-		Since: time.Now().Add(-24 * time.Hour),
+		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
 
 	result, err := ds.Fetch(ctx, opts)
@@ -255,8 +256,9 @@ func TestFetch_Deduplication(t *testing.T) {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
+	// Use fixed time before test data timestamps
 	opts := datasources.FetchOptions{
-		Since: time.Now().Add(-24 * time.Hour),
+		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
 
 	result, err := ds.Fetch(ctx, opts)
@@ -301,8 +303,9 @@ func TestFetch_OrgFilter(t *testing.T) {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
+	// Use fixed time before test data timestamps
 	opts := datasources.FetchOptions{
-		Since: time.Now().Add(-24 * time.Hour),
+		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
 
 	_, err = ds.Fetch(ctx, opts)
@@ -385,8 +388,10 @@ func TestTransform_EventTypeAndPriority(t *testing.T) {
 				t.Fatalf("NewDataSource failed: %v", err)
 			}
 
+			// Use a fixed Since time before all test data timestamps
+			// Test data has timestamps starting at 2025-12-06 03:00 UTC
 			opts := datasources.FetchOptions{
-				Since: time.Now().Add(-24 * time.Hour),
+				Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 			}
 
 			result, err := ds.Fetch(ctx, opts)
@@ -429,8 +434,9 @@ func TestTransform_TitleTruncation(t *testing.T) {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
+	// Use fixed time before test data timestamps
 	opts := datasources.FetchOptions{
-		Since: time.Now().Add(-24 * time.Hour),
+		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
 
 	result, err := ds.Fetch(ctx, opts)
@@ -481,8 +487,9 @@ func TestTransform_MetadataKeys(t *testing.T) {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
+	// Use fixed time before test data timestamps
 	opts := datasources.FetchOptions{
-		Since: time.Now().Add(-24 * time.Hour),
+		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
 
 	result, err := ds.Fetch(ctx, opts)
@@ -490,13 +497,14 @@ func TestTransform_MetadataKeys(t *testing.T) {
 		t.Fatalf("Fetch failed: %v", err)
 	}
 
-	// EFA 0001 allowed metadata keys for GitHub
+	// EFA 0001 allowed metadata keys for GitHub (subset used by current implementation)
 	allowedKeys := map[string]bool{
-		"repo":         true,
-		"number":       true,
-		"state":        true,
-		"review_state": true,
-		"labels":       true,
+		"repo":               true,
+		"number":             true,
+		"state":              true,
+		"author_login":       true,
+		"user_relationships": true,
+		"labels":             true,
 	}
 
 	for i, event := range result.Events {
@@ -530,8 +538,9 @@ func TestFetch_AuthFailure(t *testing.T) {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
+	// Use fixed time (doesn't matter for auth test, but keeping consistent)
 	opts := datasources.FetchOptions{
-		Since: time.Now().Add(-24 * time.Hour),
+		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
 
 	_, err = ds.Fetch(ctx, opts)
