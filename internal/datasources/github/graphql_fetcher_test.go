@@ -595,7 +595,7 @@ func TestDeduplicationPreservesHigherPriority(t *testing.T) {
 				},
 			}
 
-			result := deduplicateEvents(events)
+			result := models.DeduplicateEvents(events)
 
 			if len(result) != 1 {
 				t.Fatalf("expected 1 event, got %d", len(result))

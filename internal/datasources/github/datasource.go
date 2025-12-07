@@ -236,7 +236,7 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 
 	// Deduplicate by URL (same item can appear in multiple searches)
 	// Also merges user_relationships when same PR appears for multiple reasons
-	allEvents = deduplicateEvents(allEvents)
+	allEvents = models.DeduplicateEvents(allEvents)
 
 	// 6. Check CODEOWNERS for PR events (optional)
 	// Only process if codeownersFetcher is configured
@@ -281,7 +281,7 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 			if len(codeownerEvents) > 0 {
 				allEvents = append(allEvents, codeownerEvents...)
 				// Deduplicate again in case same PR appears as both reviewer and codeowner
-				allEvents = deduplicateEvents(allEvents)
+				allEvents = models.DeduplicateEvents(allEvents)
 			}
 		}
 	}

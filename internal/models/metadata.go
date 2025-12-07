@@ -433,7 +433,14 @@ func parseReactions(v any) map[string]int {
 	}
 	result := make(map[string]int, len(m))
 	for k, val := range m {
-		result[k] = getInt(map[string]any{k: val}, k)
+		switch n := val.(type) {
+		case int:
+			result[k] = n
+		case int64:
+			result[k] = int(n)
+		case float64:
+			result[k] = int(n)
+		}
 	}
 	return result
 }

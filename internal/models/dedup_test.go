@@ -92,7 +92,7 @@ func TestDeduplicateEvents(t *testing.T) {
 			},
 			wantLen: 1,
 			wantRels: map[string][]string{
-				"https://github.com/org/repo/pull/123": {"reviewer", "codeowner"},
+				"https://github.com/org/repo/pull/123": {"codeowner", "reviewer"}, // sorted alphabetically
 			},
 			wantType: map[string]EventType{
 				"https://github.com/org/repo/pull/123": EventTypePRReview, // higher priority
@@ -134,7 +134,7 @@ func TestDeduplicateEvents(t *testing.T) {
 			},
 			wantLen: 1,
 			wantRels: map[string][]string{
-				"https://github.com/org/repo/pull/456": {"mentioned", "reviewer", "codeowner"},
+				"https://github.com/org/repo/pull/456": {"codeowner", "mentioned", "reviewer"}, // sorted alphabetically
 			},
 			wantType: map[string]EventType{
 				"https://github.com/org/repo/pull/456": EventTypePRReview, // priority 2
@@ -224,7 +224,7 @@ func TestDeduplicateEvents(t *testing.T) {
 			},
 			wantLen: 1,
 			wantRels: map[string][]string{
-				"https://github.com/org/repo/pull/200": {"reviewer", "mentioned"},
+				"https://github.com/org/repo/pull/200": {"mentioned", "reviewer"}, // sorted alphabetically
 			},
 		},
 		{
@@ -263,7 +263,7 @@ func TestDeduplicateEvents(t *testing.T) {
 			},
 			wantLen: 1,
 			wantRels: map[string][]string{
-				"https://github.com/org/repo/pull/300": {"reviewer", "codeowner"},
+				"https://github.com/org/repo/pull/300": {"codeowner", "reviewer"}, // sorted alphabetically
 			},
 		},
 		{
@@ -321,7 +321,7 @@ func TestDeduplicateEvents(t *testing.T) {
 			},
 			wantLen: 1,
 			wantRels: map[string][]string{
-				"https://github.com/org/repo/pull/500": {"reviewer", "team-reviewer"},
+				"https://github.com/org/repo/pull/500": {"reviewer", "team-reviewer"}, // sorted alphabetically
 			},
 		},
 		{
@@ -353,7 +353,7 @@ func TestDeduplicateEvents(t *testing.T) {
 				"https://github.com/org/repo/pull/600": EventTypePRAuthor, // critical priority
 			},
 			wantRels: map[string][]string{
-				"https://github.com/org/repo/pull/600": {"reviewer", "author"},
+				"https://github.com/org/repo/pull/600": {"author", "reviewer"}, // sorted alphabetically
 			},
 		},
 	}
@@ -484,9 +484,9 @@ func TestDeduplicateEvents_PrimaryEventMetadataPreserved(t *testing.T) {
 		t.Errorf("repo not preserved from primary event")
 	}
 
-	// Check relationships are merged
+	// Check relationships are merged and sorted
 	rels := extractUserRelationships(&merged)
-	wantRels := []string{"reviewer", "codeowner"}
+	wantRels := []string{"codeowner", "reviewer"} // sorted alphabetically
 	if !stringSliceEqual(rels, wantRels) {
 		t.Errorf("user_relationships = %v, want %v", rels, wantRels)
 	}

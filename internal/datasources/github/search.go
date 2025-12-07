@@ -11,17 +11,17 @@ import (
 	"time"
 )
 
-// SearchPRsResponse represents the response from SearchPRsQuery.
-type SearchPRsResponse struct {
+// searchPRsResponse represents the response from SearchPRsQuery.
+type searchPRsResponse struct {
 	Search struct {
-		Nodes      []SearchPRNode
-		PageInfo   PageInfo `json:"pageInfo"`
+		Nodes      []searchPRNode
+		PageInfo   pageInfo `json:"pageInfo"`
 		IssueCount int      `json:"issueCount"`
 	} `json:"search"`
 }
 
-// SearchPRNode represents a PR node from search results.
-type SearchPRNode struct {
+// searchPRNode represents a PR node from search results.
+type searchPRNode struct {
 	Title      string    `json:"title"`
 	URL        string    `json:"url"`
 	UpdatedAt  time.Time `json:"updatedAt"`
@@ -34,17 +34,17 @@ type SearchPRNode struct {
 	Number int `json:"number"`
 }
 
-// SearchIssuesResponse represents the response from SearchIssuesQuery.
-type SearchIssuesResponse struct {
+// searchIssuesResponse represents the response from SearchIssuesQuery.
+type searchIssuesResponse struct {
 	Search struct {
-		Nodes      []SearchIssueNode
-		PageInfo   PageInfo `json:"pageInfo"`
+		Nodes      []searchIssueNode
+		PageInfo   pageInfo `json:"pageInfo"`
 		IssueCount int      `json:"issueCount"`
 	} `json:"search"`
 }
 
-// SearchIssueNode represents an issue node from search results.
-type SearchIssueNode struct {
+// searchIssueNode represents an issue node from search results.
+type searchIssueNode struct {
 	Title      string    `json:"title"`
 	URL        string    `json:"url"`
 	UpdatedAt  time.Time `json:"updatedAt"`
@@ -57,15 +57,15 @@ type SearchIssueNode struct {
 	Number int `json:"number"`
 }
 
-// PageInfo contains pagination information from GraphQL responses.
-type PageInfo struct {
+// pageInfo contains pagination information from GraphQL responses.
+type pageInfo struct {
 	EndCursor   string `json:"endCursor"`
 	HasNextPage bool   `json:"hasNextPage"`
 }
 
-// SearchItem represents a unified search result item (PR or Issue).
+// searchItem represents a unified search result item (PR or Issue).
 // Used internally for fetching full context.
-type SearchItem struct {
+type searchItem struct {
 	Owner     string
 	Repo      string
 	Title     string
@@ -76,30 +76,30 @@ type SearchItem struct {
 	IsPR      bool
 }
 
-// ParseSearchPRsResponse parses the raw GraphQL response from SearchPRsQuery.
-func ParseSearchPRsResponse(data json.RawMessage) (*SearchPRsResponse, error) {
-	var resp SearchPRsResponse
+// parseSearchPRsResponse parses the raw GraphQL response from SearchPRsQuery.
+func parseSearchPRsResponse(data json.RawMessage) (*searchPRsResponse, error) {
+	var resp searchPRsResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse search PRs response: %w", err)
 	}
 	return &resp, nil
 }
 
-// ParseSearchIssuesResponse parses the raw GraphQL response from SearchIssuesQuery.
-func ParseSearchIssuesResponse(data json.RawMessage) (*SearchIssuesResponse, error) {
-	var resp SearchIssuesResponse
+// parseSearchIssuesResponse parses the raw GraphQL response from SearchIssuesQuery.
+func parseSearchIssuesResponse(data json.RawMessage) (*searchIssuesResponse, error) {
+	var resp searchIssuesResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse search issues response: %w", err)
 	}
 	return &resp, nil
 }
 
-// ToSearchItems converts SearchPRsResponse nodes to SearchItems.
-func (r *SearchPRsResponse) ToSearchItems() []SearchItem {
-	items := make([]SearchItem, 0, len(r.Search.Nodes))
+// toSearchItems converts searchPRsResponse nodes to searchItems.
+func (r *searchPRsResponse) toSearchItems() []searchItem {
+	items := make([]searchItem, 0, len(r.Search.Nodes))
 	for _, node := range r.Search.Nodes {
 		owner, repo := splitOwnerRepo(node.Repository.NameWithOwner)
-		items = append(items, SearchItem{
+		items = append(items, searchItem{
 			Owner:     owner,
 			Repo:      repo,
 			Number:    node.Number,
@@ -113,12 +113,12 @@ func (r *SearchPRsResponse) ToSearchItems() []SearchItem {
 	return items
 }
 
-// ToSearchItems converts SearchIssuesResponse nodes to SearchItems.
-func (r *SearchIssuesResponse) ToSearchItems() []SearchItem {
-	items := make([]SearchItem, 0, len(r.Search.Nodes))
+// toSearchItems converts searchIssuesResponse nodes to searchItems.
+func (r *searchIssuesResponse) toSearchItems() []searchItem {
+	items := make([]searchItem, 0, len(r.Search.Nodes))
 	for _, node := range r.Search.Nodes {
 		owner, repo := splitOwnerRepo(node.Repository.NameWithOwner)
-		items = append(items, SearchItem{
+		items = append(items, searchItem{
 			Owner:     owner,
 			Repo:      repo,
 			Number:    node.Number,
@@ -143,7 +143,7 @@ func splitOwnerRepo(nameWithOwner string) (owner, repo string) {
 
 // searchPRs executes a GraphQL PR search and returns search items.
 // The query string should be a GitHub search query (e.g., "review-requested:@me is:open").
-func searchPRs(ctx context.Context, client *GraphQLClient, query string, limit int) ([]SearchItem, error) {
+func searchPRs(ctx context.Context, client *GraphQLClient, query string, limit int) ([]searchItem, error) {
 	if limit <= 0 {
 		limit = 100 // Default limit
 	}
@@ -158,17 +158,17 @@ func searchPRs(ctx context.Context, client *GraphQLClient, query string, limit i
 		return nil, fmt.Errorf("search PRs: %w", err)
 	}
 
-	resp, err := ParseSearchPRsResponse(data)
+	resp, err := parseSearchPRsResponse(data)
 	if err != nil {
 		return nil, err
 	}
 
-	return resp.ToSearchItems(), nil
+	return resp.toSearchItems(), nil
 }
 
 // searchIssues executes a GraphQL issue search and returns search items.
 // The query string should be a GitHub search query (e.g., "mentions:@me type:issue").
-func searchIssues(ctx context.Context, client *GraphQLClient, query string, limit int) ([]SearchItem, error) {
+func searchIssues(ctx context.Context, client *GraphQLClient, query string, limit int) ([]searchItem, error) {
 	if limit <= 0 {
 		limit = 100 // Default limit
 	}
@@ -183,10 +183,10 @@ func searchIssues(ctx context.Context, client *GraphQLClient, query string, limi
 		return nil, fmt.Errorf("search issues: %w", err)
 	}
 
-	resp, err := ParseSearchIssuesResponse(data)
+	resp, err := parseSearchIssuesResponse(data)
 	if err != nil {
 		return nil, err
 	}
 
-	return resp.ToSearchItems(), nil
+	return resp.toSearchItems(), nil
 }

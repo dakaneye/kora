@@ -2,6 +2,8 @@
 // Ground truth defined in specs/efas/0001-event-model.md
 package models
 
+import "sort"
+
 // DeduplicateEvents merges events with the same URL by combining user_relationships.
 // When duplicates exist:
 //   - Pick the event with highest priority (lowest number) as primary
@@ -66,6 +68,9 @@ func mergeEventGroup(events []Event, indices []int) Event {
 	// Create merged event with updated metadata
 	merged := events[primaryIdx]
 	if len(allRelationships) > 0 {
+		// Sort for deterministic output
+		sort.Strings(allRelationships)
+
 		if merged.Metadata == nil {
 			merged.Metadata = make(map[string]any)
 		}

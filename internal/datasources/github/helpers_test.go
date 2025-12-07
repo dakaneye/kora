@@ -41,275 +41,8 @@ func TestBuildOrgFilter(t *testing.T) {
 	}
 }
 
-func TestDeduplicateEvents(t *testing.T) {
-	t.Run("basic deduplication", func(t *testing.T) {
-		events := []models.Event{
-			{URL: "https://github.com/a/b/1", Type: models.EventTypePRReview, Priority: models.PriorityHigh},
-			{URL: "https://github.com/a/b/2", Type: models.EventTypePRMention, Priority: models.PriorityMedium},
-			{URL: "https://github.com/a/b/1", Type: models.EventTypePRMention, Priority: models.PriorityMedium}, // duplicate
-			{URL: "https://github.com/a/b/3", Type: models.EventTypeIssueMention, Priority: models.PriorityMedium},
-		}
-
-		result := deduplicateEvents(events)
-
-		if len(result) != 3 {
-			t.Errorf("expected 3 events after dedup, got %d", len(result))
-		}
-
-		// Verify higher priority wins (PRReview=High, not PRMention=Medium)
-		for _, e := range result {
-			if e.URL == "https://github.com/a/b/1" && e.Type != models.EventTypePRReview {
-				t.Errorf("expected higher priority event to win, got type %s", e.Type)
-			}
-		}
-	})
-
-	t.Run("merge user_relationships", func(t *testing.T) {
-		events := []models.Event{
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRAuthor,
-				Priority: models.PriorityCritical,
-				Metadata: map[string]any{
-					"user_relationships": []string{"author"},
-				},
-			},
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRReview,
-				Priority: models.PriorityHigh,
-				Metadata: map[string]any{
-					"user_relationships": []string{"reviewer"},
-				},
-			},
-		}
-
-		result := deduplicateEvents(events)
-
-		if len(result) != 1 {
-			t.Errorf("expected 1 event after dedup, got %d", len(result))
-		}
-
-		// Should keep higher priority (Critical from author)
-		if result[0].Priority != models.PriorityCritical {
-			t.Errorf("expected PriorityCritical, got %d", result[0].Priority)
-		}
-
-		// Should merge relationships
-		rels, ok := result[0].Metadata["user_relationships"].([]string)
-		if !ok {
-			t.Fatalf("user_relationships is not []string")
-		}
-
-		if len(rels) != 2 {
-			t.Errorf("expected 2 relationships, got %d: %v", len(rels), rels)
-		}
-
-		// Check both relationships are present (sorted alphabetically)
-		expectedRels := map[string]bool{"author": false, "reviewer": false}
-		for _, r := range rels {
-			expectedRels[r] = true
-		}
-		for rel, found := range expectedRels {
-			if !found {
-				t.Errorf("missing relationship %q", rel)
-			}
-		}
-	})
-
-	t.Run("incoming event has higher priority", func(t *testing.T) {
-		events := []models.Event{
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRMention,
-				Priority: models.PriorityMedium,
-				Metadata: map[string]any{
-					"user_relationships": []string{"mentioned"},
-				},
-			},
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRAuthor,
-				Priority: models.PriorityCritical,
-				Metadata: map[string]any{
-					"user_relationships": []string{"author"},
-				},
-			},
-		}
-
-		result := deduplicateEvents(events)
-
-		// Should keep higher priority (Critical from second event)
-		if result[0].Priority != models.PriorityCritical {
-			t.Errorf("expected PriorityCritical, got %d", result[0].Priority)
-		}
-
-		// Should have EventTypePRAuthor since it had higher priority
-		if result[0].Type != models.EventTypePRAuthor {
-			t.Errorf("expected EventTypePRAuthor, got %s", result[0].Type)
-		}
-
-		// Should still merge relationships
-		rels, ok := result[0].Metadata["user_relationships"].([]string)
-		if !ok {
-			t.Fatalf("user_relationships is not []string")
-		}
-
-		if len(rels) != 2 {
-			t.Errorf("expected 2 relationships, got %d: %v", len(rels), rels)
-		}
-	})
-
-	t.Run("deduplicate relationships", func(t *testing.T) {
-		events := []models.Event{
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRReview,
-				Priority: models.PriorityHigh,
-				Metadata: map[string]any{
-					"user_relationships": []string{"reviewer"},
-				},
-			},
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRReview,
-				Priority: models.PriorityHigh,
-				Metadata: map[string]any{
-					"user_relationships": []string{"reviewer"}, // same relationship
-				},
-			},
-		}
-
-		result := deduplicateEvents(events)
-
-		rels, ok := result[0].Metadata["user_relationships"].([]string)
-		if !ok {
-			t.Fatalf("user_relationships is not []string")
-		}
-
-		if len(rels) != 1 {
-			t.Errorf("expected 1 unique relationship, got %d: %v", len(rels), rels)
-		}
-	})
-
-	t.Run("handles nil metadata", func(t *testing.T) {
-		events := []models.Event{
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRReview,
-				Priority: models.PriorityHigh,
-				Metadata: nil,
-			},
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRMention,
-				Priority: models.PriorityMedium,
-				Metadata: map[string]any{
-					"user_relationships": []string{"mentioned"},
-				},
-			},
-		}
-
-		result := deduplicateEvents(events)
-
-		// Should not panic
-		if len(result) != 1 {
-			t.Errorf("expected 1 event, got %d", len(result))
-		}
-
-		// Metadata should be populated with merged relationships
-		rels, ok := result[0].Metadata["user_relationships"].([]string)
-		if !ok {
-			t.Fatalf("user_relationships is not []string")
-		}
-
-		if len(rels) != 1 {
-			t.Errorf("expected 1 relationship, got %d: %v", len(rels), rels)
-		}
-	})
-
-	t.Run("handles missing user_relationships key", func(t *testing.T) {
-		events := []models.Event{
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRReview,
-				Priority: models.PriorityHigh,
-				Metadata: map[string]any{
-					"repo": "org/repo",
-				},
-			},
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRMention,
-				Priority: models.PriorityMedium,
-				Metadata: map[string]any{
-					"user_relationships": []string{"mentioned"},
-				},
-			},
-		}
-
-		result := deduplicateEvents(events)
-
-		// Should not panic
-		if len(result) != 1 {
-			t.Errorf("expected 1 event, got %d", len(result))
-		}
-
-		// Should have the mentioned relationship from second event
-		rels, ok := result[0].Metadata["user_relationships"].([]string)
-		if !ok {
-			t.Fatalf("user_relationships is not []string")
-		}
-
-		if len(rels) != 1 || rels[0] != "mentioned" {
-			t.Errorf("expected ['mentioned'], got %v", rels)
-		}
-	})
-
-	t.Run("three-way merge", func(t *testing.T) {
-		events := []models.Event{
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRAuthor,
-				Priority: models.PriorityCritical,
-				Metadata: map[string]any{
-					"user_relationships": []string{"author"},
-				},
-			},
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRReview,
-				Priority: models.PriorityHigh,
-				Metadata: map[string]any{
-					"user_relationships": []string{"reviewer"},
-				},
-			},
-			{
-				URL:      "https://github.com/a/b/1",
-				Type:     models.EventTypePRMention,
-				Priority: models.PriorityMedium,
-				Metadata: map[string]any{
-					"user_relationships": []string{"mentioned"},
-				},
-			},
-		}
-
-		result := deduplicateEvents(events)
-
-		if len(result) != 1 {
-			t.Errorf("expected 1 event, got %d", len(result))
-		}
-
-		rels, ok := result[0].Metadata["user_relationships"].([]string)
-		if !ok {
-			t.Fatalf("user_relationships is not []string")
-		}
-
-		if len(rels) != 3 {
-			t.Errorf("expected 3 relationships, got %d: %v", len(rels), rels)
-		}
-	})
-}
+// Note: TestDeduplicateEvents is in internal/models/dedup_test.go
+// The function models.DeduplicateEvents is used in datasource.go
 
 func TestFilterEvents(t *testing.T) {
 	events := []models.Event{
@@ -391,37 +124,80 @@ func TestFilterEvents(t *testing.T) {
 }
 
 func TestTruncateTitle(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "short title unchanged",
-			input: "Short title",
-			want:  "Short title",
-		},
-		{
-			name:  "exactly 100 chars unchanged",
-			input: "This is exactly one hundred characters long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-			want:  "This is exactly one hundred characters long xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-		},
-		{
-			name:  "long title truncated",
-			input: "This is a very long title that exceeds the hundred character limit and should be truncated by the datasource implementation",
-			want:  "This is a very long title that exceeds the hundred character limit and should be truncated by the...",
-		},
-	}
+	t.Run("short title unchanged", func(t *testing.T) {
+		got := truncateTitle("Short title")
+		if got != "Short title" {
+			t.Errorf("truncateTitle() = %q, want %q", got, "Short title")
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := truncateTitle(tt.input)
-			if got != tt.want {
-				t.Errorf("truncateTitle() = %q (len=%d), want %q (len=%d)", got, len(got), tt.want, len(tt.want))
-			}
-			if len(got) > 100 {
-				t.Errorf("truncateTitle() returned %d chars, max is 100", len(got))
-			}
-		})
-	}
+	t.Run("long title truncated to 100 runes", func(t *testing.T) {
+		// This title has 122 characters/runes
+		input := "This is a very long title that exceeds the hundred character limit and should be truncated by the datasource implementation"
+		got := truncateTitle(input)
+		gotRunes := len([]rune(got))
+		if gotRunes != 100 {
+			t.Errorf("truncateTitle() returned %d runes, want 100", gotRunes)
+		}
+		// Should end with "..."
+		if got[len(got)-3:] != "..." {
+			t.Errorf("truncateTitle() should end with '...', got %q", got[len(got)-3:])
+		}
+	})
+
+	t.Run("UTF-8 safe truncation", func(t *testing.T) {
+		// Build a string with exactly 110 Japanese characters (each is 1 rune)
+		// to ensure truncation happens
+		input := "日本語のテキストがとても長くなることがあります。これは百文字を超える長いタイトルです。さらにテキストを追加します。これは更に長いテキストです。もっと追加します。終わりの文字です。ここまで来たら十分長い。"
+		inputRunes := len([]rune(input))
+		if inputRunes <= 100 {
+			t.Fatalf("test setup error: input has only %d runes, need >100", inputRunes)
+		}
+
+		got := truncateTitle(input)
+		gotRunes := len([]rune(got))
+		if gotRunes != 100 {
+			t.Errorf("truncateTitle() returned %d runes, want 100", gotRunes)
+		}
+		// Verify it ends with "..." (3 ASCII chars)
+		if got[len(got)-3:] != "..." {
+			t.Errorf("truncateTitle() should end with '...', got %q", got[len(got)-3:])
+		}
+	})
+
+	t.Run("emoji handling", func(t *testing.T) {
+		// Emojis can be multiple code points; test that we don't crash
+		input := "Fix bug 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥"
+		got := truncateTitle(input)
+		gotRunes := len([]rune(got))
+		if gotRunes > 100 {
+			t.Errorf("truncateTitle() returned %d runes, max is 100", gotRunes)
+		}
+	})
+
+	t.Run("newline removed", func(t *testing.T) {
+		input := "Title with\nnewline"
+		got := truncateTitle(input)
+		want := "Title with newline"
+		if got != want {
+			t.Errorf("truncateTitle() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("whitespace trimmed", func(t *testing.T) {
+		input := "  Title with leading and trailing spaces  "
+		got := truncateTitle(input)
+		want := "Title with leading and trailing spaces"
+		if got != want {
+			t.Errorf("truncateTitle() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("short title with UTF-8 unchanged", func(t *testing.T) {
+		input := "日本語"
+		got := truncateTitle(input)
+		if got != input {
+			t.Errorf("truncateTitle() = %q, want %q", got, input)
+		}
+	})
 }
