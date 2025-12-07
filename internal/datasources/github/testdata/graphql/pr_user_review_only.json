@@ -1,0 +1,70 @@
+{
+  "repository": {
+    "pullRequest": {
+      "number": 101,
+      "title": "User review only PR",
+      "state": "OPEN",
+      "isDraft": false,
+      "mergeable": "MERGEABLE",
+      "url": "https://github.com/example/repo/pull/101",
+      "createdAt": "2025-12-05T10:00:00Z",
+      "updatedAt": "2025-12-06T08:00:00Z",
+      "author": {
+        "login": "devuser"
+      },
+      "assignees": {
+        "nodes": []
+      },
+      "labels": {
+        "nodes": []
+      },
+      "body": "This PR only has direct user review requests.",
+      "headRefName": "feature/user-review",
+      "baseRefName": "main",
+      "additions": 30,
+      "deletions": 5,
+      "changedFiles": 1,
+      "files": {
+        "nodes": [
+          {"path": "src/main.go", "additions": 30, "deletions": 5}
+        ]
+      },
+      "reviewRequests": {
+        "nodes": [
+          {
+            "requestedReviewer": {
+              "__typename": "User",
+              "login": "currentuser"
+            }
+          }
+        ]
+      },
+      "reviews": {
+        "nodes": []
+      },
+      "reviewThreads": {
+        "nodes": []
+      },
+      "comments": {
+        "totalCount": 0
+      },
+      "commits": {
+        "nodes": [
+          {
+            "commit": {
+              "statusCheckRollup": {
+                "state": "SUCCESS",
+                "contexts": {
+                  "nodes": []
+                }
+              }
+            }
+          }
+        ]
+      },
+      "closingIssuesReferences": {
+        "nodes": []
+      }
+    }
+  }
+}

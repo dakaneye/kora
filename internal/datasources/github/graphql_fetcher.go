@@ -20,7 +20,8 @@ import (
 //
 // Per EFA 0001:
 //   - EventType: models.EventTypePRReview
-//   - Priority: models.PriorityHigh (2)
+//   - Priority: models.PriorityHigh (2) for direct user requests
+//   - Priority: models.PriorityMedium (3) for team-only requests
 //   - RequiresAction: true
 //
 // Per EFA 0003: Context must be used for all network operations.
@@ -64,10 +65,12 @@ func (d *DataSource) fetchPRReviewRequestsGraphQL(ctx context.Context, client *G
 				"author_login":       item.Author,
 				"user_relationships": []string{"reviewer"},
 			}
-		} else {
-			// Add user_relationships to metadata
-			metadata["user_relationships"] = []string{"reviewer"}
 		}
+
+		// Determine priority and user_relationships based on review request type
+		// Per EFA 0001: user requests = PriorityHigh (2), team-only = PriorityMedium (3)
+		priority, relationships := calculateReviewRequestPriority(metadata)
+		metadata["user_relationships"] = relationships
 
 		event := models.Event{
 			Type:   models.EventTypePRReview,
@@ -79,7 +82,7 @@ func (d *DataSource) fetchPRReviewRequestsGraphQL(ctx context.Context, client *G
 				Username: item.Author,
 			},
 			Timestamp:      item.UpdatedAt,
-			Priority:       models.PriorityHigh, // PR reviews are high priority per EFA 0001
+			Priority:       priority,
 			RequiresAction: true,
 			Metadata:       metadata,
 		}
@@ -87,6 +90,33 @@ func (d *DataSource) fetchPRReviewRequestsGraphQL(ctx context.Context, client *G
 	}
 
 	return events, nil
+}
+
+// calculateReviewRequestPriority determines priority and user_relationships based on review_requests.
+// Per EFA 0001:
+//   - Direct user request: Priority 2 (High), relationship "direct_reviewer"
+//   - Team-only request: Priority 3 (Medium), relationship "team_reviewer"
+//   - Mixed (user + team): Priority 2 (High), relationship "direct_reviewer"
+func calculateReviewRequestPriority(metadata map[string]any) (priority models.Priority, relationships []string) {
+	reviewRequests, ok := metadata["review_requests"].([]map[string]any)
+	if !ok || len(reviewRequests) == 0 {
+		// No review_requests in metadata, default to reviewer relationship with High priority
+		return models.PriorityHigh, []string{"reviewer"}
+	}
+
+	// Check if any review request is a direct user request
+	hasUserRequest := false
+	for _, rr := range reviewRequests {
+		if rr["type"] == "user" {
+			hasUserRequest = true
+			break
+		}
+	}
+
+	if hasUserRequest {
+		return models.PriorityHigh, []string{"direct_reviewer"}
+	}
+	return models.PriorityMedium, []string{"team_reviewer"}
 }
 
 // fetchPRMentionsGraphQL fetches PRs where user is mentioned using GraphQL.

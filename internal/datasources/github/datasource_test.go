@@ -390,6 +390,111 @@ func TestTransform_EventTypeAndPriority(t *testing.T) {
 	}
 }
 
+// TestTransform_PRReviewPriorityByRequestType verifies correct priority based on review request type.
+// Per EFA 0001:
+//   - Direct user request: Priority 2 (High), user_relationships: ["direct_reviewer"]
+//   - Team-only request: Priority 3 (Medium), user_relationships: ["team_reviewer"]
+//   - Mixed (user + team): Priority 2 (High), user_relationships: ["direct_reviewer"]
+func TestTransform_PRReviewPriorityByRequestType(t *testing.T) {
+	//nolint:govet // test struct field order prioritizes readability
+	tests := []struct {
+		name                 string
+		contextFile          string
+		expectedPriority     models.Priority
+		expectedRelationship string
+	}{
+		{
+			name:                 "user review request - high priority",
+			contextFile:          "pr_user_review_only.json",
+			expectedPriority:     models.PriorityHigh,
+			expectedRelationship: "direct_reviewer",
+		},
+		{
+			name:                 "team review request only - medium priority",
+			contextFile:          "pr_team_review_only.json",
+			expectedPriority:     models.PriorityMedium,
+			expectedRelationship: "team_reviewer",
+		},
+		{
+			name:                 "mixed user and team - high priority (user wins)",
+			contextFile:          "pr_full_context.json", // Has both user and team requests
+			expectedPriority:     models.PriorityHigh,
+			expectedRelationship: "direct_reviewer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			authProvider := newMockAuthProvider(auth.ServiceGitHub)
+
+			// Load test data
+			prSearchResp := loadGraphQLTestData(t, "search_prs.json")
+			emptySearchResp := loadGraphQLTestData(t, "empty_search.json")
+			prContextResp := loadGraphQLTestData(t, tt.contextFile)
+			issueContextResp := loadGraphQLTestData(t, "issue_full_context.json")
+
+			cred := authProvider.credential
+
+			// Configure responses - only PR review search returns results
+			cred.setGraphQLResponse("graphql:search:pr-review", prSearchResp)
+			cred.setGraphQLResponse("graphql:search:pr-mention", emptySearchResp)
+			cred.setGraphQLResponse("graphql:search:issue-mention", emptySearchResp)
+			cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
+			cred.setGraphQLResponse("graphql:pr:context", prContextResp)
+			cred.setGraphQLResponse("graphql:issue:context", issueContextResp)
+
+			ds, err := NewDataSource(authProvider)
+			if err != nil {
+				t.Fatalf("NewDataSource failed: %v", err)
+			}
+
+			opts := datasources.FetchOptions{
+				Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
+			}
+
+			result, err := ds.Fetch(ctx, opts)
+			if err != nil {
+				t.Fatalf("Fetch failed: %v", err)
+			}
+
+			if len(result.Events) == 0 {
+				t.Fatal("expected at least one event")
+			}
+
+			// Check the first event
+			event := result.Events[0]
+
+			// Verify event type
+			if event.Type != models.EventTypePRReview {
+				t.Errorf("expected type %q, got %q", models.EventTypePRReview, event.Type)
+			}
+
+			// Verify priority based on review request type
+			if event.Priority != tt.expectedPriority {
+				t.Errorf("expected priority %d, got %d", tt.expectedPriority, event.Priority)
+			}
+
+			// Verify user_relationships metadata
+			relationships, ok := event.Metadata["user_relationships"].([]string)
+			if !ok {
+				t.Fatalf("user_relationships is not []string: %T", event.Metadata["user_relationships"])
+			}
+			if len(relationships) != 1 {
+				t.Errorf("expected 1 relationship, got %d: %v", len(relationships), relationships)
+			}
+			if len(relationships) > 0 && relationships[0] != tt.expectedRelationship {
+				t.Errorf("expected relationship %q, got %q", tt.expectedRelationship, relationships[0])
+			}
+
+			// Verify event passes validation
+			if err := event.Validate(); err != nil {
+				t.Errorf("event failed validation: %v", err)
+			}
+		})
+	}
+}
+
 // TestTransform_TitleTruncation verifies that titles exceeding 100 chars are truncated.
 func TestTransform_TitleTruncation(t *testing.T) {
 	ctx := context.Background()
