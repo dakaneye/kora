@@ -1,0 +1,35 @@
+{
+  "search": {
+    "issueCount": 2,
+    "nodes": [
+      {
+        "number": 789,
+        "title": "Customer onboarding - Acme Corp",
+        "url": "https://github.com/example/internal-dev/issues/789",
+        "updatedAt": "2025-12-06T06:00:00Z",
+        "repository": {
+          "nameWithOwner": "example/internal-dev"
+        },
+        "author": {
+          "login": "salesrep"
+        }
+      },
+      {
+        "number": 101,
+        "title": "Bug: API returns 500 error",
+        "url": "https://github.com/example/repo/issues/101",
+        "updatedAt": "2025-12-06T05:00:00Z",
+        "repository": {
+          "nameWithOwner": "example/repo"
+        },
+        "author": {
+          "login": "tester"
+        }
+      }
+    ],
+    "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpHOQhYC"
+    }
+  }
+}

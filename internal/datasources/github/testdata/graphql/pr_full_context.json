@@ -1,0 +1,111 @@
+{
+  "repository": {
+    "pullRequest": {
+      "number": 123,
+      "title": "Add secure rebuild for core-java",
+      "state": "OPEN",
+      "isDraft": false,
+      "mergeable": "MERGEABLE",
+      "url": "https://github.com/example/repo/pull/123",
+      "createdAt": "2025-12-05T10:00:00Z",
+      "updatedAt": "2025-12-06T08:00:00Z",
+      "author": {
+        "login": "janedev"
+      },
+      "assignees": {
+        "nodes": [
+          {"login": "janedev"}
+        ]
+      },
+      "labels": {
+        "nodes": [
+          {"name": "security"},
+          {"name": "core"}
+        ]
+      },
+      "milestone": {
+        "title": "v2.0"
+      },
+      "body": "This PR adds secure rebuild functionality for core-java packages. It includes comprehensive test coverage and documentation.",
+      "headRefName": "feature/secure-rebuild",
+      "baseRefName": "main",
+      "additions": 350,
+      "deletions": 20,
+      "changedFiles": 5,
+      "files": {
+        "nodes": [
+          {"path": "src/rebuild/java.go", "additions": 150, "deletions": 20},
+          {"path": "src/rebuild/java_test.go", "additions": 200, "deletions": 0}
+        ]
+      },
+      "reviewRequests": {
+        "nodes": [
+          {
+            "requestedReviewer": {
+              "__typename": "User",
+              "login": "currentuser"
+            }
+          },
+          {
+            "requestedReviewer": {
+              "__typename": "Team",
+              "slug": "ecosystems-team",
+              "organization": {
+                "login": "example"
+              }
+            }
+          }
+        ]
+      },
+      "reviews": {
+        "nodes": [
+          {
+            "author": {"login": "otherdev"},
+            "state": "COMMENTED"
+          }
+        ]
+      },
+      "reviewThreads": {
+        "nodes": [
+          {"isResolved": true},
+          {"isResolved": false}
+        ]
+      },
+      "comments": {
+        "totalCount": 3
+      },
+      "commits": {
+        "nodes": [
+          {
+            "commit": {
+              "statusCheckRollup": {
+                "state": "SUCCESS",
+                "contexts": {
+                  "nodes": [
+                    {
+                      "__typename": "CheckRun",
+                      "name": "build",
+                      "status": "COMPLETED",
+                      "conclusion": "SUCCESS"
+                    },
+                    {
+                      "__typename": "CheckRun",
+                      "name": "test",
+                      "status": "COMPLETED",
+                      "conclusion": "SUCCESS"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "closingIssuesReferences": {
+        "nodes": [
+          {"url": "https://github.com/example/repo/issues/100"}
+        ]
+      }
+    }
+  }
+}

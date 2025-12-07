@@ -76,11 +76,14 @@ func (d *DataSource) Service() models.Source {
 
 // Fetch retrieves GitHub events (PR reviews, mentions, issue assignments).
 //
-// Search strategy:
-//  1. review-requested:@me is:open -draft:true (highest priority)
+// This implementation uses GraphQL for rich context. Search strategy:
+//  1. review-requested:@me is:open -draft:true type:pr (highest priority)
 //  2. mentions:@me type:pr (PR mentions)
 //  3. mentions:@me type:issue (issue mentions)
 //  4. assignee:@me is:open type:issue (assigned issues)
+//
+// For each search result, full context is fetched via PRQuery/IssueQuery
+// to populate all EFA 0001 metadata fields.
 //
 // EFA 0003: Context must be used for all network operations.
 // EFA 0003: Partial success must be supported.
@@ -106,6 +109,9 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 		return nil, fmt.Errorf("github fetch: credential does not support ExecuteAPI, got %T", cred)
 	}
 
+	// Create GraphQL client for rich context fetching
+	gqlClient := NewGraphQLClient(ghCred)
+
 	result := &datasources.FetchResult{
 		Stats: datasources.FetchStats{},
 	}
@@ -115,13 +121,13 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 	var allEvents []models.Event
 	var fetchErrors []error
 
-	// 1. PR review requests (highest priority)
-	prReviews, err := d.fetchPRReviewRequests(ctx, ghCred, opts.Since)
+	// 1. PR review requests (highest priority) - GraphQL
+	prReviews, err := d.fetchPRReviewRequestsGraphQL(ctx, gqlClient, opts.Since, d.orgs)
 	if err != nil {
 		fetchErrors = append(fetchErrors, fmt.Errorf("pr reviews: %w", err))
 	} else {
 		allEvents = append(allEvents, prReviews...)
-		result.Stats.APICallCount++
+		result.Stats.APICallCount++ // Search call (context fetches are counted per item internally)
 	}
 
 	// Check context cancellation between calls
@@ -133,8 +139,8 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 		return result, ctx.Err()
 	}
 
-	// 2. PR mentions
-	prMentions, err := d.fetchPRMentions(ctx, ghCred, opts.Since)
+	// 2. PR mentions - GraphQL
+	prMentions, err := d.fetchPRMentionsGraphQL(ctx, gqlClient, opts.Since, d.orgs)
 	if err != nil {
 		fetchErrors = append(fetchErrors, fmt.Errorf("pr mentions: %w", err))
 	} else {
@@ -150,8 +156,8 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 		return result, ctx.Err()
 	}
 
-	// 3. Issue mentions
-	issueMentions, err := d.fetchIssueMentions(ctx, ghCred, opts.Since)
+	// 3. Issue mentions - GraphQL
+	issueMentions, err := d.fetchIssueMentionsGraphQL(ctx, gqlClient, opts.Since, d.orgs)
 	if err != nil {
 		fetchErrors = append(fetchErrors, fmt.Errorf("issue mentions: %w", err))
 	} else {
@@ -167,8 +173,8 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 		return result, ctx.Err()
 	}
 
-	// 4. Assigned issues
-	assignedIssues, err := d.fetchAssignedIssues(ctx, ghCred, opts.Since)
+	// 4. Assigned issues - GraphQL
+	assignedIssues, err := d.fetchAssignedIssuesGraphQL(ctx, gqlClient, opts.Since, d.orgs)
 	if err != nil {
 		fetchErrors = append(fetchErrors, fmt.Errorf("assigned issues: %w", err))
 	} else {

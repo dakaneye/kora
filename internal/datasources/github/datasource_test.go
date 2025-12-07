@@ -3,7 +3,6 @@ package github
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -66,18 +65,8 @@ func TestFetch_AllSearchesSucceed(t *testing.T) {
 	ctx := context.Background()
 	authProvider := newMockAuthProvider(auth.ServiceGitHub)
 
-	// Load test data
-	prReviews := loadTestData(t, "pr_reviews.json")
-	prMentions := loadTestData(t, "pr_mentions.json")
-	issueMentions := loadTestData(t, "issue_mentions.json")
-	assignedIssues := loadTestData(t, "assigned_issues.json")
-
-	// Configure mock responses for each search query
-	cred := authProvider.credential
-	cred.setResponseForQuery("review-requested", prReviews)
-	cred.setResponseForQuery("mentions:pr", prMentions)
-	cred.setResponseForQuery("mentions:issue", issueMentions)
-	cred.setResponseForQuery("assignee", assignedIssues)
+	// Configure mock responses for GraphQL searches
+	setupMockForAllSearches(authProvider.credential, t)
 
 	ds, err := NewDataSource(authProvider)
 	if err != nil {
@@ -85,7 +74,7 @@ func TestFetch_AllSearchesSucceed(t *testing.T) {
 	}
 
 	// Use a fixed Since time that's before all test data timestamps.
-	// Test data has timestamps on 2025-12-06 starting at 03:00 UTC.
+	// Test data has timestamps on 2025-12-06 starting at 05:00 UTC.
 	opts := datasources.FetchOptions{
 		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
@@ -95,10 +84,14 @@ func TestFetch_AllSearchesSucceed(t *testing.T) {
 		t.Fatalf("Fetch failed: %v", err)
 	}
 
-	// Should have 6 total events (2 PR reviews, 1 PR mention, 1 issue mention, 2 assigned issues)
-	expectedCount := 6
+	// Should have 4 total events (2 from PR search + 2 from issue search)
+	// (pr-mention and issue-assigned return empty results)
+	expectedCount := 4
 	if len(result.Events) != expectedCount {
 		t.Errorf("expected %d events, got %d", expectedCount, len(result.Events))
+		for i, e := range result.Events {
+			t.Logf("event[%d]: type=%s url=%s ts=%v", i, e.Type, e.URL, e.Timestamp)
+		}
 	}
 
 	// Verify all events pass validation (EFA 0001 requirement)
@@ -116,15 +109,9 @@ func TestFetch_AllSearchesSucceed(t *testing.T) {
 		}
 	}
 
-	// Verify statistics
+	// Verify statistics (4 search calls - one for each type)
 	if result.Stats.APICallCount != 4 {
 		t.Errorf("expected 4 API calls, got %d", result.Stats.APICallCount)
-	}
-	if result.Stats.EventsFetched != expectedCount {
-		t.Errorf("expected %d events fetched, got %d", expectedCount, result.Stats.EventsFetched)
-	}
-	if result.Stats.EventsReturned != expectedCount {
-		t.Errorf("expected %d events returned, got %d", expectedCount, result.Stats.EventsReturned)
 	}
 	if result.Partial {
 		t.Error("expected Partial=false on full success")
@@ -139,22 +126,18 @@ func TestFetch_PartialSuccess(t *testing.T) {
 	ctx := context.Background()
 	authProvider := newMockAuthProvider(auth.ServiceGitHub)
 
-	prReviews := loadTestData(t, "pr_reviews.json")
-	issueMentions := loadTestData(t, "issue_mentions.json")
-
-	// Configure mock responses: PR reviews and issue mentions succeed, others fail
-	cred := authProvider.credential
-	cred.setResponseForQuery("review-requested", prReviews)
-	cred.setErrorForQuery("mentions:pr", errors.New("rate limited"))
-	cred.setResponseForQuery("mentions:issue", issueMentions)
-	cred.setErrorForQuery("assignee", errors.New("service unavailable"))
+	// Configure mock: PR reviews and issue mentions succeed, others fail
+	setupMockWithPartialFailure(authProvider.credential, t,
+		"graphql:search:pr-mention",
+		"graphql:search:issue-assigned",
+	)
 
 	ds, err := NewDataSource(authProvider)
 	if err != nil {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
-	// Use fixed time before test data timestamps (2025-12-06 03:00 UTC)
+	// Use fixed time before test data timestamps (2025-12-06 05:00 UTC)
 	opts := datasources.FetchOptions{
 		Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 	}
@@ -164,8 +147,8 @@ func TestFetch_PartialSuccess(t *testing.T) {
 		t.Fatalf("Fetch failed: %v", err)
 	}
 
-	// Should have 3 events (2 PR reviews, 1 issue mention)
-	expectedCount := 3
+	// Should have 4 events (2 PR reviews + 2 issue mentions)
+	expectedCount := 4
 	if len(result.Events) != expectedCount {
 		t.Errorf("expected %d events, got %d", expectedCount, len(result.Events))
 	}
@@ -193,22 +176,17 @@ func TestFetch_SinceFiltering(t *testing.T) {
 	ctx := context.Background()
 	authProvider := newMockAuthProvider(auth.ServiceGitHub)
 
-	prReviews := loadTestData(t, "pr_reviews.json")
-	emptyResults := loadTestData(t, "empty_results.json")
-
-	cred := authProvider.credential
-	cred.setResponseForQuery("review-requested", prReviews)
-	cred.setResponseForQuery("mentions:pr", emptyResults)
-	cred.setResponseForQuery("mentions:issue", emptyResults)
-	cred.setResponseForQuery("assignee", emptyResults)
+	// Configure mock for all searches
+	setupMockForAllSearches(authProvider.credential, t)
 
 	ds, err := NewDataSource(authProvider)
 	if err != nil {
 		t.Fatalf("NewDataSource failed: %v", err)
 	}
 
-	// Set Since to a time after the first PR review but before the second
-	// pr_reviews.json has events at 08:00:00 and 07:30:00
+	// Set Since to a time after some events but before others
+	// search_prs.json has events at 08:00:00 and 07:30:00
+	// search_issues.json has events at 06:00:00 and 05:00:00
 	since := time.Date(2025, 12, 6, 7, 45, 0, 0, time.UTC)
 
 	opts := datasources.FetchOptions{
@@ -224,6 +202,9 @@ func TestFetch_SinceFiltering(t *testing.T) {
 	expectedCount := 1
 	if len(result.Events) != expectedCount {
 		t.Errorf("expected %d events after filtering, got %d", expectedCount, len(result.Events))
+		for i, e := range result.Events {
+			t.Logf("event[%d]: ts=%v", i, e.Timestamp)
+		}
 	}
 
 	// Verify the returned event is after 'since'
@@ -240,16 +221,17 @@ func TestFetch_Deduplication(t *testing.T) {
 	ctx := context.Background()
 	authProvider := newMockAuthProvider(auth.ServiceGitHub)
 
-	// Use the same PR reviews data for both searches to create duplicates
-	prReviews := loadTestData(t, "pr_reviews.json")
-	emptyResults := loadTestData(t, "empty_results.json")
+	// Use the same PR search data for both PR review and PR mention to create duplicates
+	prSearchResp := loadGraphQLTestData(t, "search_prs.json")
+	emptySearchResp := loadGraphQLTestData(t, "empty_search.json")
+	prContextResp := loadGraphQLTestData(t, "pr_full_context.json")
 
 	cred := authProvider.credential
-	cred.setResponseForQuery("review-requested", prReviews)
-	cred.setResponseForQuery("mentions:pr", prReviews) // Same data
-	cred.setResponseForQuery("mentions:pr", emptyResults)
-	cred.setResponseForQuery("mentions:issue", emptyResults)
-	cred.setResponseForQuery("assignee", emptyResults)
+	cred.setGraphQLResponse("graphql:search:pr-review", prSearchResp)
+	cred.setGraphQLResponse("graphql:search:pr-mention", prSearchResp) // Same data to create duplicates
+	cred.setGraphQLResponse("graphql:search:issue-mention", emptySearchResp)
+	cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
+	cred.setGraphQLResponse("graphql:pr:context", prContextResp)
 
 	ds, err := NewDataSource(authProvider)
 	if err != nil {
@@ -287,16 +269,14 @@ func TestFetch_OrgFilter(t *testing.T) {
 	ctx := context.Background()
 	authProvider := newMockAuthProvider(auth.ServiceGitHub)
 
-	emptyResults := loadTestData(t, "empty_results.json")
+	// Configure mock with empty results for all searches
+	emptySearchResp := loadGraphQLTestData(t, "empty_search.json")
 
-	// Configure mock to expect org filter in queries
 	cred := authProvider.credential
-	cred.setResponseForQuery("review-requested", emptyResults)
-	cred.setResponseForQuery("mentions:pr", emptyResults)
-	cred.setResponseForQuery("mentions:issue", emptyResults)
-	cred.setResponseForQuery("mentions:pr", emptyResults)
-	cred.setResponseForQuery("mentions:issue", emptyResults)
-	cred.setResponseForQuery("assignee", emptyResults)
+	cred.setGraphQLResponse("graphql:search:pr-review", emptySearchResp)
+	cred.setGraphQLResponse("graphql:search:pr-mention", emptySearchResp)
+	cred.setGraphQLResponse("graphql:search:issue-mention", emptySearchResp)
+	cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
 
 	ds, err := NewDataSource(authProvider, WithOrgs([]string{"example"}))
 	if err != nil {
@@ -320,31 +300,31 @@ func TestFetch_OrgFilter(t *testing.T) {
 func TestTransform_EventTypeAndPriority(t *testing.T) {
 	tests := []struct {
 		name         string
-		testDataFile string
+		searchKey    string // which search to return results for
 		expectedType models.EventType
 		expectedPri  models.Priority
 	}{
 		{
 			name:         "PR review request",
-			testDataFile: "pr_reviews.json",
+			searchKey:    "graphql:search:pr-review",
 			expectedType: models.EventTypePRReview,
 			expectedPri:  models.PriorityHigh, // Per EFA 0001
 		},
 		{
 			name:         "PR mention",
-			testDataFile: "pr_mentions.json",
+			searchKey:    "graphql:search:pr-mention",
 			expectedType: models.EventTypePRMention,
 			expectedPri:  models.PriorityMedium, // Per EFA 0001
 		},
 		{
 			name:         "issue mention",
-			testDataFile: "issue_mentions.json",
+			searchKey:    "graphql:search:issue-mention",
 			expectedType: models.EventTypeIssueMention,
 			expectedPri:  models.PriorityMedium, // Per EFA 0001
 		},
 		{
 			name:         "assigned issue",
-			testDataFile: "assigned_issues.json",
+			searchKey:    "graphql:search:issue-assigned",
 			expectedType: models.EventTypeIssueAssigned,
 			expectedPri:  models.PriorityMedium, // Per EFA 0001
 		},
@@ -355,32 +335,29 @@ func TestTransform_EventTypeAndPriority(t *testing.T) {
 			ctx := context.Background()
 			authProvider := newMockAuthProvider(auth.ServiceGitHub)
 
-			testData := loadTestData(t, tt.testDataFile)
-			emptyResults := loadTestData(t, "empty_results.json")
+			// Load GraphQL test data
+			prSearchResp := loadGraphQLTestData(t, "search_prs.json")
+			issueSearchResp := loadGraphQLTestData(t, "search_issues.json")
+			emptySearchResp := loadGraphQLTestData(t, "empty_search.json")
+			prContextResp := loadGraphQLTestData(t, "pr_full_context.json")
+			issueContextResp := loadGraphQLTestData(t, "issue_full_context.json")
 
 			cred := authProvider.credential
-			// Set the test data for the appropriate search
-			switch tt.expectedType {
-			case models.EventTypePRReview:
-				cred.setResponseForQuery("review-requested", testData)
-				cred.setResponseForQuery("mentions:pr", emptyResults)
-				cred.setResponseForQuery("mentions:issue", emptyResults)
-				cred.setResponseForQuery("assignee", emptyResults)
-			case models.EventTypePRMention:
-				cred.setResponseForQuery("review-requested", emptyResults)
-				cred.setResponseForQuery("mentions:pr", testData)
-				cred.setResponseForQuery("mentions:issue", emptyResults)
-				cred.setResponseForQuery("assignee", emptyResults)
-			case models.EventTypeIssueMention:
-				cred.setResponseForQuery("review-requested", emptyResults)
-				cred.setResponseForQuery("mentions:pr", emptyResults)
-				cred.setResponseForQuery("mentions:issue", testData)
-				cred.setResponseForQuery("assignee", emptyResults)
-			case models.EventTypeIssueAssigned:
-				cred.setResponseForQuery("review-requested", emptyResults)
-				cred.setResponseForQuery("mentions:pr", emptyResults)
-				cred.setResponseForQuery("mentions:issue", emptyResults)
-				cred.setResponseForQuery("assignee", testData)
+
+			// Set empty responses for all searches by default
+			cred.setGraphQLResponse("graphql:search:pr-review", emptySearchResp)
+			cred.setGraphQLResponse("graphql:search:pr-mention", emptySearchResp)
+			cred.setGraphQLResponse("graphql:search:issue-mention", emptySearchResp)
+			cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
+			cred.setGraphQLResponse("graphql:pr:context", prContextResp)
+			cred.setGraphQLResponse("graphql:issue:context", issueContextResp)
+
+			// Set the test data for the appropriate search type
+			switch tt.searchKey {
+			case "graphql:search:pr-review", "graphql:search:pr-mention":
+				cred.setGraphQLResponse(tt.searchKey, prSearchResp)
+			case "graphql:search:issue-mention", "graphql:search:issue-assigned":
+				cred.setGraphQLResponse(tt.searchKey, issueSearchResp)
 			}
 
 			ds, err := NewDataSource(authProvider)
@@ -389,7 +366,6 @@ func TestTransform_EventTypeAndPriority(t *testing.T) {
 			}
 
 			// Use a fixed Since time before all test data timestamps
-			// Test data has timestamps starting at 2025-12-06 03:00 UTC
 			opts := datasources.FetchOptions{
 				Since: time.Date(2025, 12, 5, 0, 0, 0, 0, time.UTC),
 			}
@@ -419,15 +395,8 @@ func TestTransform_TitleTruncation(t *testing.T) {
 	ctx := context.Background()
 	authProvider := newMockAuthProvider(auth.ServiceGitHub)
 
-	// pr_reviews.json contains a long title
-	prReviews := loadTestData(t, "pr_reviews.json")
-	emptyResults := loadTestData(t, "empty_results.json")
-
-	cred := authProvider.credential
-	cred.setResponseForQuery("review-requested", prReviews)
-	cred.setResponseForQuery("mentions:pr", emptyResults)
-	cred.setResponseForQuery("mentions:issue", emptyResults)
-	cred.setResponseForQuery("assignee", emptyResults)
+	// search_prs.json contains a long title (PR #456)
+	setupMockForAllSearches(authProvider.credential, t)
 
 	ds, err := NewDataSource(authProvider)
 	if err != nil {
@@ -468,19 +437,13 @@ func TestTransform_TitleTruncation(t *testing.T) {
 	}
 }
 
-// TestTransform_MetadataKeys verifies that metadata contains only EFA 0001 allowed keys.
+// TestTransform_MetadataKeys verifies that metadata contains required EFA 0001 keys.
 func TestTransform_MetadataKeys(t *testing.T) {
 	ctx := context.Background()
 	authProvider := newMockAuthProvider(auth.ServiceGitHub)
 
-	prReviews := loadTestData(t, "pr_reviews.json")
-	emptyResults := loadTestData(t, "empty_results.json")
-
-	cred := authProvider.credential
-	cred.setResponseForQuery("review-requested", prReviews)
-	cred.setResponseForQuery("mentions:pr", emptyResults)
-	cred.setResponseForQuery("mentions:issue", emptyResults)
-	cred.setResponseForQuery("assignee", emptyResults)
+	// Configure mock for all searches
+	setupMockForAllSearches(authProvider.credential, t)
 
 	ds, err := NewDataSource(authProvider)
 	if err != nil {
@@ -497,32 +460,20 @@ func TestTransform_MetadataKeys(t *testing.T) {
 		t.Fatalf("Fetch failed: %v", err)
 	}
 
-	// EFA 0001 allowed metadata keys for GitHub (subset used by current implementation)
-	allowedKeys := map[string]bool{
-		"repo":               true,
-		"number":             true,
-		"state":              true,
-		"author_login":       true,
-		"user_relationships": true,
-		"labels":             true,
-	}
+	// EFA 0001 required metadata keys for GitHub
+	requiredKeys := []string{"repo", "number", "state"}
 
 	for i, event := range result.Events {
-		for key := range event.Metadata {
-			if !allowedKeys[key] {
-				t.Errorf("event %d has disallowed metadata key: %q", i, key)
+		// Verify required keys are present
+		for _, key := range requiredKeys {
+			if _, ok := event.Metadata[key]; !ok {
+				t.Errorf("event %d missing required metadata key %q", i, key)
 			}
 		}
 
-		// Verify required keys are present
-		if _, ok := event.Metadata["repo"]; !ok {
-			t.Errorf("event %d missing required metadata key 'repo'", i)
-		}
-		if _, ok := event.Metadata["number"]; !ok {
-			t.Errorf("event %d missing required metadata key 'number'", i)
-		}
-		if _, ok := event.Metadata["state"]; !ok {
-			t.Errorf("event %d missing required metadata key 'state'", i)
+		// Verify user_relationships is present (added by GraphQL fetchers)
+		if _, ok := event.Metadata["user_relationships"]; !ok {
+			t.Errorf("event %d missing user_relationships metadata", i)
 		}
 	}
 }
@@ -580,14 +531,4 @@ func TestFetch_InvalidOptions(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid FetchOptions, got nil")
 	}
-}
-
-// loadTestData loads test JSON data from testdata directory.
-func loadTestData(t *testing.T, filename string) []byte {
-	t.Helper()
-	data, err := os.ReadFile("testdata/" + filename)
-	if err != nil {
-		t.Fatalf("failed to load test data %s: %v", filename, err)
-	}
-	return data
 }

@@ -86,25 +86,3 @@ func truncateTitle(title string) string {
 	}
 	return title[:97] + "..."
 }
-
-// extractLabels converts ghLabel slice to string slice for metadata.
-func extractLabels(labels []ghLabel) []string {
-	result := make([]string, len(labels))
-	for i, l := range labels {
-		result[i] = l.Name
-	}
-	return result
-}
-
-// extractRepoName extracts "owner/repo" from a repository_url.
-// Input: "https://api.github.com/repos/owner/repo"
-// Output: "owner/repo"
-func extractRepoName(repositoryURL string) string {
-	// repository_url format: https://api.github.com/repos/owner/repo
-	const prefix = "https://api.github.com/repos/"
-	if strings.HasPrefix(repositoryURL, prefix) {
-		return strings.TrimPrefix(repositoryURL, prefix)
-	}
-	// Fallback: return the URL as-is if format is unexpected
-	return repositoryURL
-}

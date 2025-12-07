@@ -1,0 +1,10 @@
+{
+  "search": {
+    "issueCount": 0,
+    "nodes": [],
+    "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": null
+    }
+  }
+}

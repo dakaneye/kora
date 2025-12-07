@@ -58,7 +58,9 @@ func (m *mockAuthProvider) IsAuthenticated(ctx context.Context) bool {
 type mockGitHubDelegatedCredential struct {
 	*ghauth.GitHubDelegatedCredential
 	// responses maps query patterns to response data
-	// key format: "review-requested", "mentions:pr", "mentions:issue", "assignee"
+	// For REST: "review-requested", "mentions:pr", "mentions:issue", "assignee"
+	// For GraphQL search: "graphql:search:pr-review", "graphql:search:pr-mention", etc.
+	// For GraphQL context: "graphql:pr:owner/repo/123", "graphql:issue:owner/repo/456"
 	responses map[string]mockAPIResponse
 	callCount int
 }
@@ -79,10 +81,62 @@ func newMockGitHubDelegatedCredential() *mockGitHubDelegatedCredential {
 
 // ExecuteAPI overrides the real implementation to return test data.
 // This allows us to test without calling the actual gh CLI.
-// Matches based on query content to return the right test data.
+// Supports both REST and GraphQL endpoints.
 func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint string, args ...string) ([]byte, error) {
 	m.callCount++
 
+	// Handle GraphQL endpoint
+	if endpoint == "graphql" {
+		return m.handleGraphQL(args)
+	}
+
+	// Handle REST endpoint (legacy)
+	return m.handleREST(args)
+}
+
+// handleGraphQL processes GraphQL API calls.
+func (m *mockGitHubDelegatedCredential) handleGraphQL(args []string) ([]byte, error) {
+	// Extract query and variables from args
+	var queryStr, varsStr string
+	for i, arg := range args {
+		if arg == "-f" && i+1 < len(args) {
+			val := args[i+1]
+			if len(val) > 6 && val[:6] == "query=" {
+				queryStr = val[6:]
+			} else if len(val) > 10 && val[:10] == "variables=" {
+				varsStr = val[10:]
+			}
+		}
+	}
+
+	// Determine the type of GraphQL query based on content
+	var key string
+	switch {
+	case contains(queryStr, "SearchPRs") || contains(queryStr, "search(query"):
+		// It's a search query, determine type from variables
+		key = determineSearchKey(varsStr)
+	case contains(queryStr, "PRContext") || contains(queryStr, "pullRequest(number"):
+		// It's a PR context query
+		key = "graphql:pr:context"
+	case contains(queryStr, "IssueContext") || contains(queryStr, "issue(number"):
+		// It's an issue context query
+		key = "graphql:issue:context"
+	default:
+		return nil, fmt.Errorf("mock: unknown graphql query type")
+	}
+
+	resp, ok := m.responses[key]
+	if !ok {
+		return nil, fmt.Errorf("mock: no response configured for graphql key %s", key)
+	}
+	if resp.err != nil {
+		return nil, resp.err
+	}
+	return resp.data, nil
+}
+
+// handleREST processes REST API calls (legacy support for old tests).
+func (m *mockGitHubDelegatedCredential) handleREST(args []string) ([]byte, error) {
 	// Extract query from args to determine which response to return
 	var query string
 	for i, arg := range args {
@@ -119,14 +173,16 @@ func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint
 	return resp.data, nil
 }
 
-// setResponseForQuery configures the mock to return data for a query pattern.
-// key should be one of: "review-requested", "mentions:pr", "mentions:issue", "assignee"
-func (m *mockGitHubDelegatedCredential) setResponseForQuery(key string, data []byte) {
+// setGraphQLResponse configures the mock to return data for a GraphQL query type.
+// key should be one of:
+// - "graphql:search:pr-review", "graphql:search:pr-mention", "graphql:search:issue-mention", "graphql:search:issue-assigned"
+// - "graphql:pr:context", "graphql:issue:context"
+func (m *mockGitHubDelegatedCredential) setGraphQLResponse(key string, data []byte) {
 	m.responses[key] = mockAPIResponse{data: data}
 }
 
-// setErrorForQuery configures the mock to return an error for a query pattern.
-func (m *mockGitHubDelegatedCredential) setErrorForQuery(key string, err error) {
+// setGraphQLError configures the mock to return an error for a GraphQL query type.
+func (m *mockGitHubDelegatedCredential) setGraphQLError(key string, err error) {
 	m.responses[key] = mockAPIResponse{err: err}
 }
 
@@ -142,4 +198,20 @@ func findSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// determineSearchKey maps GraphQL search query variables to a mock response key.
+func determineSearchKey(varsStr string) string {
+	switch {
+	case contains(varsStr, "review-requested"):
+		return "graphql:search:pr-review"
+	case contains(varsStr, "mentions") && contains(varsStr, "type:pr"):
+		return "graphql:search:pr-mention"
+	case contains(varsStr, "mentions") && contains(varsStr, "type:issue"):
+		return "graphql:search:issue-mention"
+	case contains(varsStr, "assignee"):
+		return "graphql:search:issue-assigned"
+	default:
+		return "graphql:search:default"
+	}
 }
