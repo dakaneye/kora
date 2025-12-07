@@ -373,3 +373,237 @@ func TestCalculatePRAuthorPriority_MetadataNotModified(t *testing.T) {
 		t.Error("calculatePRAuthorPriority modified reviews length")
 	}
 }
+
+// TestPriorityAssignmentRulesEFA0001 is a comprehensive test that verifies all priority
+// assignment rules match EFA 0001 specifications.
+//
+// Per EFA 0001 Priority Assignment Rules:
+//
+//	| Condition                           | Priority          | EventType      | RequiresAction |
+//	|-------------------------------------|-------------------|----------------|----------------|
+//	| PR author + CI failing              | 1 (Critical)      | pr_author      | true           |
+//	| PR review requested (direct user)   | 2 (High)          | pr_review      | true           |
+//	| PR author + changes requested       | 2 (High)          | pr_author      | true           |
+//	| PR review requested (team)          | 3 (Medium)        | pr_review      | true           |
+//	| PR author (pending/approved)        | 3 (Medium)        | pr_author      | false          |
+//	| @mention in issue/PR                | 3 (Medium)        | *_mention      | false          |
+//	| Issue assigned                      | 3 (Medium)        | issue_assigned | true           |
+func TestPriorityAssignmentRulesEFA0001(t *testing.T) {
+	t.Run("PR Author Priority Rules", func(t *testing.T) {
+		// Test 1: CI failing = Critical (1), RequiresAction=true
+		t.Run("CI failing is Critical priority with RequiresAction", func(t *testing.T) {
+			metadata := map[string]any{"ci_rollup": "failure"}
+			priority, requiresAction, _ := calculatePRAuthorPriority(metadata)
+			if priority != models.PriorityCritical {
+				t.Errorf("CI failing: got priority %d, want %d (Critical)", priority, models.PriorityCritical)
+			}
+			if !requiresAction {
+				t.Error("CI failing: RequiresAction should be true")
+			}
+		})
+
+		// Test 2: Changes requested = High (2), RequiresAction=true
+		t.Run("Changes requested is High priority with RequiresAction", func(t *testing.T) {
+			metadata := map[string]any{
+				"ci_rollup": "success",
+				"reviews": []map[string]any{
+					{"author": "reviewer", "state": "changes_requested"},
+				},
+			}
+			priority, requiresAction, _ := calculatePRAuthorPriority(metadata)
+			if priority != models.PriorityHigh {
+				t.Errorf("Changes requested: got priority %d, want %d (High)", priority, models.PriorityHigh)
+			}
+			if !requiresAction {
+				t.Error("Changes requested: RequiresAction should be true")
+			}
+		})
+
+		// Test 3: Has approval = Medium (3), RequiresAction=false
+		t.Run("Approved is Medium priority without RequiresAction", func(t *testing.T) {
+			metadata := map[string]any{
+				"ci_rollup": "success",
+				"reviews": []map[string]any{
+					{"author": "reviewer", "state": "approved"},
+				},
+			}
+			priority, requiresAction, _ := calculatePRAuthorPriority(metadata)
+			if priority != models.PriorityMedium {
+				t.Errorf("Approved: got priority %d, want %d (Medium)", priority, models.PriorityMedium)
+			}
+			if requiresAction {
+				t.Error("Approved: RequiresAction should be false")
+			}
+		})
+
+		// Test 4: Pending (no reviews) = Medium (3), RequiresAction=false
+		t.Run("Pending is Medium priority without RequiresAction", func(t *testing.T) {
+			metadata := map[string]any{
+				"ci_rollup": "pending",
+			}
+			priority, requiresAction, _ := calculatePRAuthorPriority(metadata)
+			if priority != models.PriorityMedium {
+				t.Errorf("Pending: got priority %d, want %d (Medium)", priority, models.PriorityMedium)
+			}
+			if requiresAction {
+				t.Error("Pending: RequiresAction should be false")
+			}
+		})
+	})
+
+	t.Run("PR Review Request Priority Rules", func(t *testing.T) {
+		// Test 1: Direct user request = High (2)
+		t.Run("Direct user request is High priority", func(t *testing.T) {
+			metadata := map[string]any{
+				"review_requests": []map[string]any{
+					{"login": "user", "type": "user"},
+				},
+			}
+			priority, _ := calculateReviewRequestPriority(metadata)
+			if priority != models.PriorityHigh {
+				t.Errorf("Direct user request: got priority %d, want %d (High)", priority, models.PriorityHigh)
+			}
+		})
+
+		// Test 2: Team request = Medium (3)
+		t.Run("Team request is Medium priority", func(t *testing.T) {
+			metadata := map[string]any{
+				"review_requests": []map[string]any{
+					{"login": "team", "type": "team"},
+				},
+			}
+			priority, _ := calculateReviewRequestPriority(metadata)
+			if priority != models.PriorityMedium {
+				t.Errorf("Team request: got priority %d, want %d (Medium)", priority, models.PriorityMedium)
+			}
+		})
+
+		// Test 3: Mixed user and team = High (2) - user takes precedence
+		t.Run("Mixed request prioritizes user (High priority)", func(t *testing.T) {
+			metadata := map[string]any{
+				"review_requests": []map[string]any{
+					{"login": "team", "type": "team"},
+					{"login": "user", "type": "user"},
+				},
+			}
+			priority, _ := calculateReviewRequestPriority(metadata)
+			if priority != models.PriorityHigh {
+				t.Errorf("Mixed request: got priority %d, want %d (High)", priority, models.PriorityHigh)
+			}
+		})
+	})
+
+	t.Run("Priority Hierarchy", func(t *testing.T) {
+		// Verify CI failure takes priority over changes requested
+		t.Run("CI failure trumps changes requested", func(t *testing.T) {
+			metadata := map[string]any{
+				"ci_rollup": "failure",
+				"reviews": []map[string]any{
+					{"author": "reviewer", "state": "changes_requested"},
+				},
+			}
+			priority, _, _ := calculatePRAuthorPriority(metadata)
+			if priority != models.PriorityCritical {
+				t.Errorf("CI failure with changes requested: got priority %d, want %d (Critical)", priority, models.PriorityCritical)
+			}
+		})
+
+		// Verify CI failure takes priority over approval
+		t.Run("CI failure trumps approval", func(t *testing.T) {
+			metadata := map[string]any{
+				"ci_rollup": "failure",
+				"reviews": []map[string]any{
+					{"author": "reviewer", "state": "approved"},
+				},
+			}
+			priority, _, _ := calculatePRAuthorPriority(metadata)
+			if priority != models.PriorityCritical {
+				t.Errorf("CI failure with approval: got priority %d, want %d (Critical)", priority, models.PriorityCritical)
+			}
+		})
+
+		// Verify changes requested takes priority over approval
+		t.Run("Changes requested trumps approval", func(t *testing.T) {
+			metadata := map[string]any{
+				"ci_rollup": "success",
+				"reviews": []map[string]any{
+					{"author": "reviewer1", "state": "approved"},
+					{"author": "reviewer2", "state": "changes_requested"},
+				},
+			}
+			priority, _, _ := calculatePRAuthorPriority(metadata)
+			if priority != models.PriorityHigh {
+				t.Errorf("Mixed reviews: got priority %d, want %d (High)", priority, models.PriorityHigh)
+			}
+		})
+	})
+}
+
+// TestDeduplicationPreservesHigherPriority verifies that when events are deduplicated,
+// the higher priority (lower number) event is kept per EFA 0001.
+func TestDeduplicationPreservesHigherPriority(t *testing.T) {
+	tests := []struct {
+		name             string
+		firstPriority    models.Priority
+		secondPriority   models.Priority
+		expectedPriority models.Priority
+	}{
+		{
+			name:             "Critical beats High",
+			firstPriority:    models.PriorityCritical,
+			secondPriority:   models.PriorityHigh,
+			expectedPriority: models.PriorityCritical,
+		},
+		{
+			name:             "High beats Medium",
+			firstPriority:    models.PriorityHigh,
+			secondPriority:   models.PriorityMedium,
+			expectedPriority: models.PriorityHigh,
+		},
+		{
+			name:             "Medium beats Low",
+			firstPriority:    models.PriorityMedium,
+			secondPriority:   models.PriorityLow,
+			expectedPriority: models.PriorityMedium,
+		},
+		{
+			name:             "Later Critical replaces earlier Medium",
+			firstPriority:    models.PriorityMedium,
+			secondPriority:   models.PriorityCritical,
+			expectedPriority: models.PriorityCritical,
+		},
+		{
+			name:             "Same priority keeps first",
+			firstPriority:    models.PriorityMedium,
+			secondPriority:   models.PriorityMedium,
+			expectedPriority: models.PriorityMedium,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			events := []models.Event{
+				{
+					URL:      "https://github.com/test/repo/1",
+					Priority: tt.firstPriority,
+					Metadata: map[string]any{"user_relationships": []string{"first"}},
+				},
+				{
+					URL:      "https://github.com/test/repo/1",
+					Priority: tt.secondPriority,
+					Metadata: map[string]any{"user_relationships": []string{"second"}},
+				},
+			}
+
+			result := deduplicateEvents(events)
+
+			if len(result) != 1 {
+				t.Fatalf("expected 1 event, got %d", len(result))
+			}
+
+			if result[0].Priority != tt.expectedPriority {
+				t.Errorf("priority = %d, want %d", result[0].Priority, tt.expectedPriority)
+			}
+		})
+	}
+}

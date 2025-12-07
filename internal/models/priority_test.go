@@ -74,3 +74,29 @@ func TestPriority_Range(t *testing.T) {
 		})
 	}
 }
+
+func TestPriority_String(t *testing.T) {
+	//nolint:govet // test struct field order prioritizes readability
+	tests := []struct {
+		name     string
+		priority Priority
+		want     string
+	}{
+		{"Critical", PriorityCritical, "Critical"},
+		{"High", PriorityHigh, "High"},
+		{"Medium", PriorityMedium, "Medium"},
+		{"Low", PriorityLow, "Low"},
+		{"Info", PriorityInfo, "Info"},
+		{"Unknown (0)", Priority(0), "Unknown"},
+		{"Unknown (6)", Priority(6), "Unknown"},
+		{"Unknown (-1)", Priority(-1), "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.priority.String(); got != tt.want {
+				t.Errorf("Priority.String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
