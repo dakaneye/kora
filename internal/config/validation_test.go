@@ -1,0 +1,276 @@
+package config
+
+import (
+	"testing"
+	"time"
+)
+
+func TestConfig_Validate(t *testing.T) {
+	//nolint:govet // fieldalignment in tests is not a concern
+	tests := []struct {
+		name    string
+		modify  func(*Config)
+		wantErr bool
+	}{
+		{
+			name:    "valid default config",
+			modify:  func(_ *Config) {},
+			wantErr: false,
+		},
+		{
+			name: "no datasources enabled",
+			modify: func(c *Config) {
+				c.Datasources.GitHub.Enabled = false
+				c.Datasources.Slack.Enabled = false
+			},
+			wantErr: true,
+		},
+		{
+			name: "only github enabled",
+			modify: func(c *Config) {
+				c.Datasources.Slack.Enabled = false
+			},
+			wantErr: false,
+		},
+		{
+			name: "only slack enabled",
+			modify: func(c *Config) {
+				c.Datasources.GitHub.Enabled = false
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid format",
+			modify: func(c *Config) {
+				c.Digest.Format = "markdown"
+			},
+			wantErr: true,
+		},
+		{
+			name: "zero window",
+			modify: func(c *Config) {
+				c.Digest.Window = 0
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative window",
+			modify: func(c *Config) {
+				c.Digest.Window = -1 * time.Hour
+			},
+			wantErr: true,
+		},
+		{
+			name: "zero timeout",
+			modify: func(c *Config) {
+				c.Security.DatasourceTimeout = 0
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative timeout",
+			modify: func(c *Config) {
+				c.Security.DatasourceTimeout = -1 * time.Second
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid timezone",
+			modify: func(c *Config) {
+				c.Digest.Timezone = "Invalid/Timezone"
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid timezone",
+			modify: func(c *Config) {
+				c.Digest.Timezone = "America/New_York"
+			},
+			wantErr: false,
+		},
+		{
+			name: "Local timezone",
+			modify: func(c *Config) {
+				c.Digest.Timezone = "Local"
+			},
+			wantErr: false,
+		},
+		{
+			name: "UTC timezone",
+			modify: func(c *Config) {
+				c.Digest.Timezone = "UTC"
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			tt.modify(cfg)
+			err := cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDatasourcesConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     DatasourcesConfig
+		wantErr bool
+	}{
+		{
+			name: "both enabled",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{Enabled: true},
+				Slack:  SlackConfig{Enabled: true},
+			},
+			wantErr: false,
+		},
+		{
+			name: "github only",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{Enabled: true},
+				Slack:  SlackConfig{Enabled: false},
+			},
+			wantErr: false,
+		},
+		{
+			name: "slack only",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{Enabled: false},
+				Slack:  SlackConfig{Enabled: true},
+			},
+			wantErr: false,
+		},
+		{
+			name: "none enabled",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{Enabled: false},
+				Slack:  SlackConfig{Enabled: false},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDigestConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     DigestConfig
+		wantErr bool
+	}{
+		{
+			name: "valid config",
+			cfg: DigestConfig{
+				Window:   16 * time.Hour,
+				Timezone: "Local",
+				Format:   "text",
+			},
+			wantErr: false,
+		},
+		{
+			name: "json format",
+			cfg: DigestConfig{
+				Window:   16 * time.Hour,
+				Timezone: "Local",
+				Format:   "json",
+			},
+			wantErr: false,
+		},
+		{
+			name: "json-pretty format",
+			cfg: DigestConfig{
+				Window:   16 * time.Hour,
+				Timezone: "Local",
+				Format:   "json-pretty",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid format",
+			cfg: DigestConfig{
+				Window:   16 * time.Hour,
+				Timezone: "Local",
+				Format:   "csv",
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty format",
+			cfg: DigestConfig{
+				Window:   16 * time.Hour,
+				Timezone: "Local",
+				Format:   "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "zero window",
+			cfg: DigestConfig{
+				Window:   0,
+				Timezone: "Local",
+				Format:   "text",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsValidFormat(t *testing.T) {
+	tests := []struct {
+		format string
+		want   bool
+	}{
+		{"json", true},
+		{"json-pretty", true},
+		{"text", true},
+		{"markdown", false},
+		{"terminal", false},
+		{"", false},
+		{"JSON", false}, // case-sensitive
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			if got := IsValidFormat(tt.format); got != tt.want {
+				t.Errorf("IsValidFormat(%q) = %v, want %v", tt.format, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidFormats(t *testing.T) {
+	formats := ValidFormats()
+	if len(formats) != 3 {
+		t.Errorf("Expected 3 formats, got %d", len(formats))
+	}
+
+	expected := map[string]bool{"json": true, "json-pretty": true, "text": true}
+	for _, f := range formats {
+		if !expected[f] {
+			t.Errorf("Unexpected format: %s", f)
+		}
+	}
+}
