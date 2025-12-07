@@ -3,8 +3,17 @@ package config
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
+
+// validOrgPattern matches valid GitHub organization/user names.
+// GitHub usernames: alphanumeric, hyphens, 1-39 chars, no leading/trailing hyphens.
+var validOrgPattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$`)
+
+// validWorkspacePattern matches valid Slack workspace names.
+// Slack workspaces: alphanumeric, hyphens, underscores.
+var validWorkspacePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // validFormats is the set of allowed output formats.
 var validFormats = map[string]struct{}{
@@ -41,9 +50,29 @@ func (c *Config) Validate() error {
 
 // Validate checks that datasources configuration is valid.
 func (c *DatasourcesConfig) Validate() error {
+	var errs []error
+
 	// At least one datasource must be enabled
 	if !c.GitHub.Enabled && !c.Slack.Enabled {
-		return errors.New("at least one datasource must be enabled")
+		errs = append(errs, errors.New("at least one datasource must be enabled"))
+	}
+
+	// Validate GitHub org names to prevent search query injection
+	for _, org := range c.GitHub.Orgs {
+		if !validOrgPattern.MatchString(org) {
+			errs = append(errs, fmt.Errorf("invalid github org name: %q", org))
+		}
+	}
+
+	// Validate Slack workspace names
+	for _, ws := range c.Slack.Workspaces {
+		if !validWorkspacePattern.MatchString(ws) {
+			errs = append(errs, fmt.Errorf("invalid slack workspace name: %q", ws))
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return nil
 }

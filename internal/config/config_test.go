@@ -36,9 +36,7 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Security.DatasourceTimeout != 30*time.Second {
 		t.Errorf("DatasourceTimeout should default to 30s, got %v", cfg.Security.DatasourceTimeout)
 	}
-	if !cfg.Security.VerifyTLS {
-		t.Error("VerifyTLS should be true by default")
-	}
+	// Note: TLS verification is always enabled (not configurable per EFA 0002)
 }
 
 func TestDefaultConfig_Validates(t *testing.T) {

@@ -46,6 +46,5 @@ security:
   # Accepts Go duration format: 30s, 1m, etc.
   datasource_timeout: 30s
 
-  # Verify TLS certificates (recommended: true)
-  # Only disable for testing with self-signed certificates.
-  verify_tls: true
+  # Note: TLS verification is always enabled and cannot be disabled.
+  # This is a security requirement.

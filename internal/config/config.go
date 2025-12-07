@@ -70,9 +70,8 @@ type SecurityConfig struct {
 	// DatasourceTimeout is the per-datasource timeout.
 	// Default: 30s
 	DatasourceTimeout time.Duration `yaml:"datasource_timeout"`
-	// VerifyTLS controls TLS certificate verification.
-	// Default: true
-	VerifyTLS bool `yaml:"verify_tls"`
+	// Note: TLS verification is always enabled and cannot be disabled.
+	// This is a security requirement per EFA 0002.
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -94,7 +93,6 @@ func DefaultConfig() *Config {
 		Security: SecurityConfig{
 			RedactCredentials: true,
 			DatasourceTimeout: 30 * time.Second,
-			VerifyTLS:         true,
 		},
 	}
 }

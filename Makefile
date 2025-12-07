@@ -32,7 +32,7 @@ test:
 ## test-integration: Run integration tests (requires auth)
 test-integration:
 	@echo "Running integration tests..."
-	KORA_INTEGRATION_TESTS=1 go test -race -v -tags=integration ./tests/integration/...
+	go test -race -v -tags=integration ./tests/integration/...
 
 ## test-coverage: Run tests with coverage report
 test-coverage:
