@@ -56,6 +56,10 @@ const (
 	EventTypePRAuthor EventType = "pr_author"
 	// EventTypePRCodeowner indicates user owns changed files via CODEOWNERS.
 	EventTypePRCodeowner EventType = "pr_codeowner"
+	// EventTypePRClosed indicates user's authored PR that was merged or closed.
+	EventTypePRClosed EventType = "pr_closed"
+	// EventTypePRCommentMention indicates user was mentioned in a PR comment or review.
+	EventTypePRCommentMention EventType = "pr_comment_mention"
 	// EventTypeIssueMention indicates a mention in an issue.
 	EventTypeIssueMention EventType = "issue_mention"
 	// EventTypeIssueAssigned indicates assignment to an issue.
@@ -73,14 +77,16 @@ const (
 // validEventTypes is the authoritative set of valid event types.
 // EFA 0001: Do NOT add types here without updating the EFA.
 var validEventTypes = map[EventType]struct{}{
-	EventTypePRReview:      {},
-	EventTypePRMention:     {},
-	EventTypePRAuthor:      {},
-	EventTypePRCodeowner:   {},
-	EventTypeIssueMention:  {},
-	EventTypeIssueAssigned: {},
-	EventTypeSlackDM:       {},
-	EventTypeSlackMention:  {},
+	EventTypePRReview:         {},
+	EventTypePRMention:        {},
+	EventTypePRAuthor:         {},
+	EventTypePRCodeowner:      {},
+	EventTypePRClosed:         {},
+	EventTypePRCommentMention: {},
+	EventTypeIssueMention:     {},
+	EventTypeIssueAssigned:    {},
+	EventTypeSlackDM:          {},
+	EventTypeSlackMention:     {},
 }
 
 // IsValid reports whether t is a defined EventType constant.

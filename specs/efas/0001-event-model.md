@@ -66,10 +66,12 @@ type EventType string
 
 const (
     // GitHub PR event types
-    EventTypePRReview      EventType = "pr_review"       // Review requested on a PR
-    EventTypePRMention     EventType = "pr_mention"      // Mentioned in a PR
-    EventTypePRAuthor      EventType = "pr_author"       // User's own PR (for status tracking)
-    EventTypePRCodeowner   EventType = "pr_codeowner"    // User owns changed files via CODEOWNERS
+    EventTypePRReview           EventType = "pr_review"            // Review requested on a PR
+    EventTypePRMention          EventType = "pr_mention"           // Mentioned in a PR
+    EventTypePRAuthor           EventType = "pr_author"            // User's own PR (for status tracking)
+    EventTypePRCodeowner        EventType = "pr_codeowner"         // User owns changed files via CODEOWNERS
+    EventTypePRClosed           EventType = "pr_closed"            // User's authored PR that was merged or closed
+    EventTypePRCommentMention   EventType = "pr_comment_mention"   // User mentioned in a PR comment or review
 
     // GitHub Issue event types
     EventTypeIssueMention  EventType = "issue_mention"   // Mentioned in an issue
@@ -82,14 +84,16 @@ const (
 
 // validEventTypes is the authoritative set of valid event types.
 var validEventTypes = map[EventType]struct{}{
-    EventTypePRReview:      {},
-    EventTypePRMention:     {},
-    EventTypePRAuthor:      {},
-    EventTypePRCodeowner:   {},
-    EventTypeIssueMention:  {},
-    EventTypeIssueAssigned: {},
-    EventTypeSlackDM:       {},
-    EventTypeSlackMention:  {},
+    EventTypePRReview:         {},
+    EventTypePRMention:        {},
+    EventTypePRAuthor:         {},
+    EventTypePRCodeowner:      {},
+    EventTypePRClosed:         {},
+    EventTypePRCommentMention: {},
+    EventTypeIssueMention:     {},
+    EventTypeIssueAssigned:    {},
+    EventTypeSlackDM:          {},
+    EventTypeSlackMention:     {},
 }
 
 // IsValid reports whether t is a defined EventType constant.
@@ -194,6 +198,9 @@ Rich context for PRs to enable Claude to assess relevance without additional que
 | `base_ref` | string | Target branch name |
 | `created_at` | string | RFC3339 creation timestamp |
 | `updated_at` | string | RFC3339 last update timestamp |
+| `closed_at` | string | RFC3339 close timestamp (for pr_closed events) |
+| `merged_at` | string | RFC3339 merge timestamp (for pr_closed events) |
+| `merged_by` | string | Username who merged (for pr_closed events) |
 
 #### GitHub Issue Metadata
 
@@ -260,6 +267,9 @@ var allowedMetadataKeys = map[Source]map[string]struct{}{
         "comments_count":       {},
         "created_at":           {},
         "updated_at":           {},
+        "closed_at":            {},
+        "merged_at":            {},
+        "merged_by":            {},
         // PR-specific fields
         "review_requests":      {},
         "reviews":              {},
@@ -369,19 +379,21 @@ func (e Event) validateMetadataKeys() error {
 
 Datasources MUST assign priority according to these rules:
 
-| Condition | Priority | EventType | user_relationships |
-|-----------|----------|-----------|-------------------|
-| PR author + CI failing | 1 (Critical) | pr_author | author |
-| PR review requested (direct user) | 2 (High) | pr_review | direct_reviewer |
-| PR author + changes requested | 2 (High) | pr_author | author |
-| Direct message / DM | 2 (High) | slack_dm | - |
-| PR review requested (team) | 3 (Medium) | pr_review | team_reviewer |
-| PR author (pending/approved) | 3 (Medium) | pr_author | author |
-| PR codeowner (not explicit reviewer) | 3 (Medium) | pr_codeowner | codeowner |
-| @mention in issue/PR/channel | 3 (Medium) | *_mention | mentioned |
-| Issue assigned | 3 (Medium) | issue_assigned | assignee |
-| Thread reply | 4 (Low) | slack_mention | - |
-| FYI / informational | 5 (Info) | - | - |
+| Condition | Priority | EventType | user_relationships | RequiresAction |
+|-----------|----------|-----------|-------------------|----------------|
+| PR author + CI failing | 1 (Critical) | pr_author | author | true |
+| PR review requested (direct user) | 2 (High) | pr_review | direct_reviewer | true |
+| PR author + changes requested | 2 (High) | pr_author | author | true |
+| Direct message / DM | 2 (High) | slack_dm | - | true |
+| PR review requested (team) | 3 (Medium) | pr_review | team_reviewer | true |
+| PR author (pending/approved) | 3 (Medium) | pr_author | author | true |
+| PR codeowner (not explicit reviewer) | 3 (Medium) | pr_codeowner | codeowner | true |
+| @mention in issue/PR/channel | 3 (Medium) | *_mention | mentioned | false |
+| PR comment mention | 3 (Medium) | pr_comment_mention | mentioned | false |
+| Issue assigned | 3 (Medium) | issue_assigned | assignee | true |
+| Thread reply | 4 (Low) | slack_mention | - | false |
+| PR closed (merged/closed) | 5 (Info) | pr_closed | author | false |
+| FYI / informational | 5 (Info) | - | - | false |
 
 **Priority Calculation for PR Author:**
 ```go
@@ -414,7 +426,7 @@ The `user_relationships` metadata field indicates why the user is seeing this ev
 - `"author"` - User created this PR
 - `"direct_reviewer"` - User was directly requested as reviewer
 - `"team_reviewer"` - User's team was requested as reviewer
-- `"mentioned"` - User was @mentioned in body/comments
+- `"mentioned"` - User was @mentioned in body/comments/reviews
 - `"codeowner"` - User owns changed files per CODEOWNERS
 - `"assignee"` - User is assigned to this issue
 
@@ -423,7 +435,8 @@ When the same PR appears in multiple searches (e.g., user is both mentioned and 
 1. `pr_review` (direct_reviewer or team_reviewer present)
 2. `pr_author` (author present)
 3. `pr_codeowner` (codeowner present, not already a reviewer)
-4. `pr_mention` (mentioned present, no higher priority relationship)
+4. `pr_comment_mention` (mentioned in comments/reviews, no higher priority relationship)
+5. `pr_mention` (mentioned in body/title, no higher priority relationship)
 
 ### Example Events
 
@@ -547,6 +560,66 @@ When the same PR appears in multiple searches (e.g., user is both mentioned and 
     ],
     "files_changed_count": 2,
     "ci_rollup": "pending"
+  }
+}
+```
+
+**GitHub PR Closed (User's Merged PR - Informational):**
+```json
+{
+  "type": "pr_closed",
+  "title": "Merged: Add user authentication middleware",
+  "source": "github",
+  "url": "https://github.com/org/repo/pull/234",
+  "author": {
+    "name": "Current User",
+    "username": "currentuser"
+  },
+  "timestamp": "2025-12-06T09:30:00Z",
+  "priority": 5,
+  "requires_action": false,
+  "metadata": {
+    "repo": "org/repo",
+    "number": 234,
+    "state": "merged",
+    "author_login": "currentuser",
+    "user_relationships": ["author"],
+    "merged_at": "2025-12-06T09:30:00Z",
+    "merged_by": "janedev",
+    "files_changed_count": 8,
+    "additions": 450,
+    "deletions": 120,
+    "labels": ["feature", "security"],
+    "milestone": "v2.1",
+    "ci_rollup": "success"
+  }
+}
+```
+
+**GitHub PR Comment Mention (User mentioned in review/comment):**
+```json
+{
+  "type": "pr_comment_mention",
+  "title": "@mention in comment: Refactor API layer",
+  "source": "github",
+  "url": "https://github.com/org/repo/pull/567",
+  "author": {
+    "name": "Other Developer",
+    "username": "otherdev"
+  },
+  "timestamp": "2025-12-06T10:00:00Z",
+  "priority": 3,
+  "requires_action": false,
+  "metadata": {
+    "repo": "org/repo",
+    "number": 567,
+    "state": "open",
+    "author_login": "otherdev",
+    "user_relationships": ["mentioned"],
+    "comments_count": 8,
+    "review_comments_count": 12,
+    "labels": ["refactoring"],
+    "ci_rollup": "success"
   }
 }
 ```
@@ -701,6 +774,11 @@ if !event.Type.IsValid() {
 // STOP - inventing new event types
 const EventTypePRComment EventType = "pr_comment" // NOT in EFA 0001
 ```
+
+**NOTE:** As of this update, the following EventTypes are valid:
+- `pr_review`, `pr_mention`, `pr_author`, `pr_codeowner`, `pr_closed`, `pr_comment_mention`
+- `issue_mention`, `issue_assigned`
+- `slack_dm`, `slack_mention`
 
 ### Rule 3: NEVER Add Metadata Keys Without EFA Update
 

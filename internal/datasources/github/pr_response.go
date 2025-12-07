@@ -85,7 +85,9 @@ type PRData struct {
 			Author struct {
 				Login string `json:"login"`
 			} `json:"author"`
-			State string `json:"state"`
+			State     string    `json:"state"`
+			Body      string    `json:"body"`
+			CreatedAt time.Time `json:"createdAt"`
 		} `json:"nodes"`
 	} `json:"reviews"`
 
@@ -97,6 +99,14 @@ type PRData struct {
 
 	Comments struct {
 		TotalCount int `json:"totalCount"`
+		Nodes      []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Body      string    `json:"body"`
+			CreatedAt time.Time `json:"createdAt"`
+			UpdatedAt time.Time `json:"updatedAt"`
+		} `json:"nodes"`
 	} `json:"comments"`
 
 	Commits struct {
@@ -229,19 +239,39 @@ func buildPRMetadata(pr *PRData, repo string) map[string]any {
 	}
 	metadata["review_requests"] = reviewRequests
 
-	// Reviews (handle ghost users with nil Author)
+	// Reviews (include body for mention detection)
 	reviews := make([]map[string]any, 0, len(pr.Reviews.Nodes))
 	for _, r := range pr.Reviews.Nodes {
 		authorLogin := ""
 		if r.Author.Login != "" {
 			authorLogin = r.Author.Login
 		}
-		reviews = append(reviews, map[string]any{
-			"author": authorLogin,
-			"state":  strings.ToLower(r.State),
-		})
+		review := map[string]any{
+			"author":     authorLogin,
+			"state":      strings.ToLower(r.State),
+			"body":       r.Body,
+			"created_at": r.CreatedAt.Format(time.RFC3339),
+		}
+		reviews = append(reviews, review)
 	}
 	metadata["reviews"] = reviews
+
+	// Comments (include body for mention detection)
+	comments := make([]map[string]any, 0, len(pr.Comments.Nodes))
+	for _, c := range pr.Comments.Nodes {
+		authorLogin := ""
+		if c.Author.Login != "" {
+			authorLogin = c.Author.Login
+		}
+		comment := map[string]any{
+			"author":     authorLogin,
+			"body":       c.Body,
+			"created_at": c.CreatedAt.Format(time.RFC3339),
+			"updated_at": c.UpdatedAt.Format(time.RFC3339),
+		}
+		comments = append(comments, comment)
+	}
+	metadata["comments"] = comments
 
 	// Unresolved threads count
 	unresolvedCount := 0

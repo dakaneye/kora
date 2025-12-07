@@ -109,9 +109,9 @@ func TestFetch_AllSearchesSucceed(t *testing.T) {
 		}
 	}
 
-	// Verify statistics (5 search calls - one for each type)
-	if result.Stats.APICallCount != 5 {
-		t.Errorf("expected 5 API calls, got %d", result.Stats.APICallCount)
+	// Verify statistics (7 search calls - one for each type including closed PRs and comment mentions)
+	if result.Stats.APICallCount != 7 {
+		t.Errorf("expected 7 API calls, got %d", result.Stats.APICallCount)
 	}
 	if result.Partial {
 		t.Error("expected Partial=false on full success")

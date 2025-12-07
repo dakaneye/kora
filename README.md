@@ -4,7 +4,7 @@ CLI tool that aggregates GitHub and Slack activity into a prioritized morning di
 
 ## Features
 
-- **GitHub**: PR review requests, PR mentions, issue mentions, issue assignments
+- **GitHub**: PR review requests, PR mentions, issue mentions, issue assignments, authored PRs, closed/merged PRs, PR comment @mentions
 - **Slack**: Direct messages, @mentions in channels (requires enterprise workspace)
 - **Output formats**: JSON, JSON (pretty-printed), text
 - **Authentication**: GitHub via `gh` CLI delegation, Slack via macOS Keychain

@@ -43,6 +43,10 @@ var allowedMetadataKeys = map[Source]map[string]struct{}{
 		"mergeable":             {},
 		"head_ref":              {},
 		"base_ref":              {},
+		// PR closure fields
+		"closed_at": {},
+		"merged_at": {},
+		"merged_by": {},
 		// Issue-specific fields
 		"comments":         {},
 		"linked_prs":       {},

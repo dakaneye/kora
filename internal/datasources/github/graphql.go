@@ -138,6 +138,10 @@ func (e *GraphQLErrorList) IsNotFound() bool {
 
 // PRQuery is the GraphQL query for fetching rich PR context.
 // This query fetches all metadata fields defined in EFA 0001.
+//
+// NOTE: This query fetches comment and review bodies (up to 50 each) to support
+// @mention detection for pr_comment_mention events. This increases payload size
+// but is necessary for detecting user mentions in PR discussions.
 const PRQuery = `
 query PRContext($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -212,6 +216,8 @@ query PRContext($owner: String!, $repo: String!, $number: Int!) {
             login
           }
           state
+          body
+          createdAt
         }
       }
 
@@ -221,8 +227,16 @@ query PRContext($owner: String!, $repo: String!, $number: Int!) {
         }
       }
 
-      comments(first: 1) {
+      comments(first: 50) {
         totalCount
+        nodes {
+          author {
+            login
+          }
+          body
+          createdAt
+          updatedAt
+        }
       }
 
       commits(last: 1) {

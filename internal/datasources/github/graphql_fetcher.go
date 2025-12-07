@@ -10,6 +10,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dakaneye/kora/internal/models"
@@ -486,4 +487,221 @@ func calculatePRAuthorPriority(metadata map[string]any) (priority models.Priorit
 
 	// Default: pending state
 	return models.PriorityMedium, false, "Your PR: "
+}
+
+// fetchClosedPRsGraphQL fetches PRs authored by user that were recently merged or closed.
+// Query: author:LOGIN is:closed type:pr updated:>=DATE
+//
+// This method provides informational tracking of completed work.
+//
+// Per EFA 0001:
+//   - EventType: models.EventTypePRClosed
+//   - Priority: models.PriorityInfo (5) - informational only
+//   - RequiresAction: false
+//
+// Per EFA 0003: Context must be used for all network operations.
+func (d *DataSource) fetchClosedPRsGraphQL(ctx context.Context, client *GraphQLClient, cred githubCredential, since time.Time, orgs []string) ([]models.Event, error) {
+	// Get current user login
+	currentUser, err := d.getCurrentUser(ctx, cred)
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	// Build search query for closed PRs
+	searchQuery := fmt.Sprintf("author:%s is:closed type:pr updated:>=%s", currentUser, since.Format("2006-01-02"))
+
+	if len(orgs) > 0 {
+		searchQuery += " " + buildOrgFilter(orgs)
+	}
+
+	// Search for matching PRs
+	items, err := searchPRs(ctx, client, searchQuery, 100)
+	if err != nil {
+		return nil, fmt.Errorf("search closed prs: %w", err)
+	}
+
+	// Fetch full context for each PR
+	events := make([]models.Event, 0, len(items))
+	for _, item := range items {
+		// Check context cancellation between items
+		select {
+		case <-ctx.Done():
+			return events, ctx.Err()
+		default:
+		}
+
+		// Skip items that are before the since time
+		if !item.UpdatedAt.After(since) {
+			continue
+		}
+
+		// Fetch full PR context
+		metadata, err := fetchPRFullContext(ctx, client, item.Owner, item.Repo, item.Number)
+		if err != nil {
+			// Log but continue with partial data
+			metadata = map[string]any{
+				"repo":               item.Owner + "/" + item.Repo,
+				"number":             item.Number,
+				"state":              "closed",
+				"author_login":       item.Author,
+				"user_relationships": []string{"author"},
+			}
+		} else {
+			metadata["user_relationships"] = []string{"author"}
+		}
+
+		// Determine title prefix based on state (merged vs closed)
+		titlePrefix := "Closed: "
+		if state, ok := metadata["state"].(string); ok && state == "merged" {
+			titlePrefix = "Merged: "
+		}
+
+		event := models.Event{
+			Type:   models.EventTypePRClosed,
+			Title:  truncateTitle(fmt.Sprintf("%s%s", titlePrefix, item.Title)),
+			Source: models.SourceGitHub,
+			URL:    item.URL,
+			Author: models.Person{
+				Name:     item.Author,
+				Username: item.Author,
+			},
+			Timestamp:      item.UpdatedAt,
+			Priority:       models.PriorityInfo, // Closed PRs are informational per EFA 0001
+			RequiresAction: false,
+			Metadata:       metadata,
+		}
+		events = append(events, event)
+	}
+
+	return events, nil
+}
+
+// checkCommentMentions scans PR comments and reviews for @mentions of username.
+// Returns true if username is mentioned in any comment or review body.
+//
+// Checks both:
+// - Review comments (code review feedback)
+// - Issue comments (general PR discussion)
+//
+// Mention detection is case-insensitive and requires @ prefix.
+func checkCommentMentions(metadata map[string]any, username string) bool {
+	if metadata == nil || username == "" {
+		return false
+	}
+
+	// Normalize username for comparison
+	normalizedUser := strings.ToLower(username)
+	mentionPattern := "@" + normalizedUser
+
+	// Check review comments
+	if reviews, ok := metadata["reviews"].([]map[string]any); ok {
+		for _, review := range reviews {
+			if body, bodyOK := review["body"].(string); bodyOK {
+				if strings.Contains(strings.ToLower(body), mentionPattern) {
+					return true
+				}
+			}
+		}
+	}
+
+	// Check issue comments (PR discussions)
+	if comments, ok := metadata["comments"].([]map[string]any); ok {
+		for _, comment := range comments {
+			if body, bodyOK := comment["body"].(string); bodyOK {
+				if strings.Contains(strings.ToLower(body), mentionPattern) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// fetchPRCommentMentionsGraphQL fetches PRs where user is @mentioned in comments or reviews.
+// Query: involves:LOGIN type:pr updated:>=DATE
+//
+// This method detects conversational mentions where someone addresses the user directly
+// in PR discussions. It searches for PRs involving the user, fetches full context,
+// then filters for @mentions in comment/review bodies.
+//
+// Per EFA 0001:
+//   - EventType: models.EventTypePRCommentMention
+//   - Priority: models.PriorityMedium (3) - conversational awareness
+//   - RequiresAction: false
+//
+// Per EFA 0003: Context must be used for all network operations.
+//
+// Performance note: This is an expensive operation (search + N full context queries).
+// The involves: filter narrows scope to PRs the user has interacted with.
+func (d *DataSource) fetchPRCommentMentionsGraphQL(ctx context.Context, client *GraphQLClient, cred githubCredential, since time.Time, orgs []string) ([]models.Event, error) {
+	// Get current user login
+	currentUser, err := d.getCurrentUser(ctx, cred)
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	// Build search query - use involves: to narrow scope to PRs user interacted with
+	// This reduces the search space for mention detection
+	searchQuery := fmt.Sprintf("involves:%s type:pr updated:>=%s", currentUser, since.Format("2006-01-02"))
+
+	if len(orgs) > 0 {
+		searchQuery += " " + buildOrgFilter(orgs)
+	}
+
+	// Search for matching PRs
+	items, err := searchPRs(ctx, client, searchQuery, 100)
+	if err != nil {
+		return nil, fmt.Errorf("search pr comment mentions: %w", err)
+	}
+
+	// Fetch full context and check for mentions
+	events := make([]models.Event, 0)
+	for _, item := range items {
+		// Check context cancellation between items
+		select {
+		case <-ctx.Done():
+			return events, ctx.Err()
+		default:
+		}
+
+		// Skip items that are before the since time
+		if !item.UpdatedAt.After(since) {
+			continue
+		}
+
+		// Fetch full PR context - we need comment bodies for mention detection
+		metadata, err := fetchPRFullContext(ctx, client, item.Owner, item.Repo, item.Number)
+		if err != nil {
+			// Skip this PR if we can't fetch full context
+			// We need comments/reviews to detect mentions
+			continue
+		}
+
+		// Check if user is mentioned in comments or reviews
+		if !checkCommentMentions(metadata, currentUser) {
+			continue // No mention found, skip this PR
+		}
+
+		// User is mentioned - create event
+		metadata["user_relationships"] = []string{"mentioned"}
+
+		event := models.Event{
+			Type:   models.EventTypePRCommentMention,
+			Title:  truncateTitle(fmt.Sprintf("Mentioned in comment: %s", item.Title)),
+			Source: models.SourceGitHub,
+			URL:    item.URL,
+			Author: models.Person{
+				Name:     item.Author,
+				Username: item.Author,
+			},
+			Timestamp:      item.UpdatedAt,
+			Priority:       models.PriorityMedium, // Per EFA 0001
+			RequiresAction: false,
+			Metadata:       metadata,
+		}
+		events = append(events, event)
+	}
+
+	return events, nil
 }

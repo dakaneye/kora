@@ -234,11 +234,47 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 		result.Stats.APICallCount++
 	}
 
+	if ctx.Err() != nil {
+		result.Events = allEvents
+		result.Errors = fetchErrors
+		result.Partial = len(allEvents) > 0
+		result.Stats.Duration = time.Since(startTime)
+		return result, ctx.Err()
+	}
+
+	// 6. Closed PRs - GraphQL
+	// Track recently merged/closed PRs for informational purposes
+	closedPRs, err := d.fetchClosedPRsGraphQL(ctx, gqlClient, ghCred, opts.Since, d.orgs)
+	if err != nil {
+		fetchErrors = append(fetchErrors, fmt.Errorf("closed prs: %w", err))
+	} else {
+		allEvents = append(allEvents, closedPRs...)
+		result.Stats.APICallCount++
+	}
+
+	if ctx.Err() != nil {
+		result.Events = allEvents
+		result.Errors = fetchErrors
+		result.Partial = len(allEvents) > 0
+		result.Stats.Duration = time.Since(startTime)
+		return result, ctx.Err()
+	}
+
+	// 7. PR comment mentions - GraphQL
+	// Detect when user is @mentioned in PR comments or reviews
+	prCommentMentions, err := d.fetchPRCommentMentionsGraphQL(ctx, gqlClient, ghCred, opts.Since, d.orgs)
+	if err != nil {
+		fetchErrors = append(fetchErrors, fmt.Errorf("pr comment mentions: %w", err))
+	} else {
+		allEvents = append(allEvents, prCommentMentions...)
+		result.Stats.APICallCount++
+	}
+
 	// Deduplicate by URL (same item can appear in multiple searches)
 	// Also merges user_relationships when same PR appears for multiple reasons
 	allEvents = models.DeduplicateEvents(allEvents)
 
-	// 6. Check CODEOWNERS for PR events (optional)
+	// 8. Check CODEOWNERS for PR events (optional)
 	// Only process if codeownersFetcher is configured
 	if d.codeownersFetcher != nil {
 		currentUser, userErr := d.getCurrentUser(ctx, ghCred)
