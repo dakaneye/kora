@@ -1,0 +1,117 @@
+{
+  "repository": {
+    "pullRequest": {
+      "number": 123,
+      "title": "feat: add rich metadata support",
+      "state": "OPEN",
+      "isDraft": false,
+      "mergeable": "MERGEABLE",
+      "url": "https://github.com/org/repo/pull/123",
+      "createdAt": "2025-12-05T10:00:00Z",
+      "updatedAt": "2025-12-06T08:30:00Z",
+      "body": "This PR adds support for rich metadata in events.\n\n## Summary\n- Adds new metadata fields\n- Updates EFA 0001\n- Includes tests",
+      "headRefName": "feature/rich-metadata",
+      "baseRefName": "main",
+      "additions": 250,
+      "deletions": 50,
+      "changedFiles": 8,
+      "author": {
+        "login": "janedev"
+      },
+      "assignees": {
+        "nodes": [
+          {"login": "reviewer1"},
+          {"login": "reviewer2"}
+        ]
+      },
+      "labels": {
+        "nodes": [
+          {"name": "enhancement"},
+          {"name": "needs-review"}
+        ]
+      },
+      "milestone": {
+        "title": "v2.0"
+      },
+      "files": {
+        "nodes": [
+          {"path": "internal/models/event.go", "additions": 100, "deletions": 20},
+          {"path": "internal/models/metadata.go", "additions": 150, "deletions": 30}
+        ]
+      },
+      "reviewRequests": {
+        "nodes": [
+          {
+            "requestedReviewer": {
+              "__typename": "User",
+              "login": "reviewer1"
+            }
+          },
+          {
+            "requestedReviewer": {
+              "__typename": "Team",
+              "slug": "core-team",
+              "organization": {
+                "login": "org"
+              }
+            }
+          }
+        ]
+      },
+      "reviews": {
+        "nodes": [
+          {"author": {"login": "reviewer1"}, "state": "APPROVED"},
+          {"author": {"login": "reviewer3"}, "state": "CHANGES_REQUESTED"}
+        ]
+      },
+      "reviewThreads": {
+        "nodes": [
+          {"isResolved": true},
+          {"isResolved": false},
+          {"isResolved": false}
+        ]
+      },
+      "comments": {
+        "totalCount": 5
+      },
+      "commits": {
+        "nodes": [
+          {
+            "commit": {
+              "statusCheckRollup": {
+                "state": "FAILURE",
+                "contexts": {
+                  "nodes": [
+                    {
+                      "__typename": "CheckRun",
+                      "name": "build",
+                      "status": "COMPLETED",
+                      "conclusion": "SUCCESS"
+                    },
+                    {
+                      "__typename": "CheckRun",
+                      "name": "test",
+                      "status": "COMPLETED",
+                      "conclusion": "FAILURE"
+                    },
+                    {
+                      "__typename": "StatusContext",
+                      "context": "coverage",
+                      "state": "SUCCESS"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "closingIssuesReferences": {
+        "nodes": [
+          {"url": "https://github.com/org/repo/issues/100"},
+          {"url": "https://github.com/org/repo/issues/101"}
+        ]
+      }
+    }
+  }
+}
