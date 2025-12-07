@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+// truncateString safely truncates a string to maxRunes, handling UTF-8 correctly.
+func truncateString(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes])
+}
+
 // PRGraphQLResponse is the top-level response from PRQuery.
 type PRGraphQLResponse struct {
 	Repository struct {
@@ -162,14 +171,12 @@ func buildPRMetadata(pr *PRData, repo string) map[string]any {
 		"deletions":           pr.Deletions,
 		"files_changed_count": pr.ChangedFiles,
 		"comments_count":      pr.Comments.TotalCount,
+		"created_at":          pr.CreatedAt.Format(time.RFC3339),
+		"updated_at":          pr.UpdatedAt.Format(time.RFC3339),
 	}
 
-	// Truncate body to 500 chars per EFA 0001
-	body := pr.Body
-	if len(body) > 500 {
-		body = body[:500]
-	}
-	metadata["body"] = body
+	// Truncate body to 500 chars per EFA 0001 (UTF-8 safe)
+	metadata["body"] = truncateString(pr.Body, 500)
 
 	// Milestone
 	if pr.Milestone != nil {
@@ -222,11 +229,15 @@ func buildPRMetadata(pr *PRData, repo string) map[string]any {
 	}
 	metadata["review_requests"] = reviewRequests
 
-	// Reviews
+	// Reviews (handle ghost users with nil Author)
 	reviews := make([]map[string]any, 0, len(pr.Reviews.Nodes))
 	for _, r := range pr.Reviews.Nodes {
+		authorLogin := ""
+		if r.Author.Login != "" {
+			authorLogin = r.Author.Login
+		}
 		reviews = append(reviews, map[string]any{
-			"author": r.Author.Login,
+			"author": authorLogin,
 			"state":  strings.ToLower(r.State),
 		})
 	}

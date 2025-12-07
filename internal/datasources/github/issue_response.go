@@ -115,14 +115,12 @@ func buildIssueMetadata(issue *IssueData, repo string) map[string]any {
 		"state":          strings.ToLower(issue.State),
 		"author_login":   issue.Author.Login,
 		"comments_count": issue.Comments.TotalCount,
+		"created_at":     issue.CreatedAt.Format(time.RFC3339),
+		"updated_at":     issue.UpdatedAt.Format(time.RFC3339),
 	}
 
-	// Truncate body to 500 chars per EFA 0001
-	body := issue.Body
-	if len(body) > 500 {
-		body = body[:500]
-	}
-	metadata["body"] = body
+	// Truncate body to 500 chars per EFA 0001 (UTF-8 safe)
+	metadata["body"] = truncateString(issue.Body, 500)
 
 	// Milestone
 	if issue.Milestone != nil {
@@ -143,17 +141,16 @@ func buildIssueMetadata(issue *IssueData, repo string) map[string]any {
 	}
 	metadata["labels"] = labels
 
-	// Comments (recent 10)
+	// Comments (recent 10, handle ghost users with nil Author)
 	comments := make([]map[string]any, 0, len(issue.Comments.Nodes))
 	for _, c := range issue.Comments.Nodes {
-		// Truncate comment body to 200 chars
-		commentBody := c.Body
-		if len(commentBody) > 200 {
-			commentBody = commentBody[:200]
+		authorLogin := ""
+		if c.Author.Login != "" {
+			authorLogin = c.Author.Login
 		}
 		comments = append(comments, map[string]any{
-			"author":     c.Author.Login,
-			"body":       commentBody,
+			"author":     authorLogin,
+			"body":       truncateString(c.Body, 200),
 			"created_at": c.CreatedAt.Format(time.RFC3339),
 		})
 	}

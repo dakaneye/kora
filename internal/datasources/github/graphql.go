@@ -57,33 +57,20 @@ type GraphQLResponse struct {
 //	  }
 //	`, map[string]any{"owner": "org", "repo": "repo", "number": 123})
 func (c *GraphQLClient) Execute(ctx context.Context, query string, variables map[string]any) (json.RawMessage, error) {
-	// Build the GraphQL request body
-	request := map[string]any{
-		"query": query,
-	}
-	if len(variables) > 0 {
-		request["variables"] = variables
-	}
-
-	requestJSON, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("marshal graphql request: %w", err)
-	}
-
 	// Execute via gh api graphql
 	// The -f flag passes the input as a field in the request body
-	// Using --input - to pass the full request body via stdin
 	out, err := c.cred.ExecuteAPI(ctx, "graphql",
 		"-f", fmt.Sprintf("query=%s", query),
 		"-f", fmt.Sprintf("variables=%s", mustMarshalVariables(variables)),
 	)
 	if err != nil {
 		// Check for common error patterns
+		// SECURITY: Don't include request body in errors to prevent information disclosure
 		errStr := err.Error()
 		if strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "API rate limit") {
 			return nil, fmt.Errorf("rate limited: %w", err)
 		}
-		return nil, fmt.Errorf("execute graphql: %w (request: %s)", err, string(requestJSON))
+		return nil, fmt.Errorf("execute graphql: %w", err)
 	}
 
 	// Parse the response
