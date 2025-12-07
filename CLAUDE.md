@@ -31,6 +31,7 @@ EFAs are formal specifications that define ground truth for AI agents working on
 | 0001 | `specs/efas/0001-event-model.md` | Event struct, validation, metadata keys, priority rules |
 | 0002 | `specs/efas/0002-auth-provider.md` | Auth provider interface, credential security, CLI delegation |
 | 0003 | `specs/efas/0003-datasource-interface.md` | DataSource interface, concurrent fetching, partial success |
+| 0004 | `specs/efas/0004-tool-responsibility.md` | Kora as data layer, Claude as intelligence, separation of concerns |
 
 ### Protected Code Detection
 
