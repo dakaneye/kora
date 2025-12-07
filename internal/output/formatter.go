@@ -74,18 +74,16 @@ func NewFormatStats(events []models.Event, duration time.Duration, sourceErrors 
 }
 
 // NewFormatter creates a formatter for the specified format type.
-// Supported formats: "json", "markdown", "text".
+// Supported formats: "json", "json-pretty", "text".
 func NewFormatter(format string) (Formatter, error) {
 	switch format {
 	case "json":
 		return NewJSONFormatter(false), nil
 	case "json-pretty":
 		return NewJSONFormatter(true), nil
-	case "markdown", "md":
-		return NewMarkdownFormatter(), nil
 	case "text", "txt":
 		return NewTextFormatter(), nil
 	default:
-		return nil, fmt.Errorf("unsupported format: %q (supported: json, json-pretty, markdown, text)", format)
+		return nil, fmt.Errorf("unsupported format: %q (supported: json, json-pretty, text)", format)
 	}
 }

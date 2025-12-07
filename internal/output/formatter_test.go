@@ -15,8 +15,6 @@ func TestNewFormatter(t *testing.T) {
 	}{
 		{"json format", "json", false},
 		{"json-pretty format", "json-pretty", false},
-		{"markdown format", "markdown", false},
-		{"md alias", "md", false},
 		{"text format", "text", false},
 		{"txt alias", "txt", false},
 		{"unknown format", "xml", true},
