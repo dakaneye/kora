@@ -1,0 +1,103 @@
+{
+  "exported_at": "2024-01-15T10:00:00Z",
+  "schema_version": 1,
+  "goals": [
+    {
+      "id": "goal-1",
+      "title": "Launch v1",
+      "description": "Complete v1 implementation",
+      "status": "active",
+      "priority": 1,
+      "target_date": "2024-02-01T00:00:00Z",
+      "tags": "[\"q1\", \"priority\"]",
+      "is_deleted": 0,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-10T00:00:00Z"
+    },
+    {
+      "id": "goal-2",
+      "title": "Write documentation",
+      "description": "Complete user guide and API docs",
+      "status": "active",
+      "priority": 2,
+      "tags": "[\"docs\", \"q1\"]",
+      "is_deleted": 0,
+      "created_at": "2024-01-05T00:00:00Z",
+      "updated_at": "2024-01-12T00:00:00Z"
+    }
+  ],
+  "commitments": [
+    {
+      "id": "commit-1",
+      "title": "Review PR #123",
+      "to_whom": "alice",
+      "status": "active",
+      "due_date": "2024-01-20T00:00:00Z",
+      "tags": "[\"review\"]",
+      "is_deleted": 0,
+      "created_at": "2024-01-15T00:00:00Z",
+      "updated_at": "2024-01-15T00:00:00Z"
+    },
+    {
+      "id": "commit-2",
+      "title": "Fix auth bug",
+      "status": "in_progress",
+      "due_date": "2024-01-25T00:00:00Z",
+      "tags": "[\"bug\", \"security\"]",
+      "is_deleted": 0,
+      "created_at": "2024-01-14T00:00:00Z",
+      "updated_at": "2024-01-15T08:00:00Z"
+    }
+  ],
+  "accomplishments": [
+    {
+      "id": "acc-1",
+      "title": "Shipped feature X",
+      "description": "New authentication system",
+      "impact": "Reduced login time by 50%",
+      "source_url": "https://github.com/example/repo/pull/100",
+      "accomplished_at": "2024-01-10T00:00:00Z",
+      "tags": "[\"shipped\", \"auth\"]",
+      "is_deleted": 0,
+      "created_at": "2024-01-10T00:00:00Z",
+      "updated_at": "2024-01-10T00:00:00Z"
+    },
+    {
+      "id": "acc-2",
+      "title": "Fixed critical bug",
+      "description": "Security vulnerability in auth flow",
+      "impact": "Prevented potential data leak",
+      "accomplished_at": "2024-01-08T00:00:00Z",
+      "tags": "[\"security\", \"bug\"]",
+      "is_deleted": 0,
+      "created_at": "2024-01-08T00:00:00Z",
+      "updated_at": "2024-01-08T00:00:00Z"
+    }
+  ],
+  "context": [
+    {
+      "id": "ctx-1",
+      "entity_type": "person",
+      "entity_id": "alice",
+      "title": "Alice prefers async updates",
+      "body": "Alice is in EU timezone, prefers Slack over email for quick questions",
+      "urgency": "normal",
+      "tags": "[\"communication\"]",
+      "is_deleted": 0,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-05T00:00:00Z"
+    },
+    {
+      "id": "ctx-2",
+      "entity_type": "project",
+      "entity_id": "kora",
+      "title": "Kora project context",
+      "body": "Go CLI tool for morning digest aggregation from GitHub. Focus on simplicity and speed.",
+      "urgency": "high",
+      "tags": "[\"project\", \"go\"]",
+      "is_deleted": 0,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-10T00:00:00Z"
+    }
+  ]
+}

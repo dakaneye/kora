@@ -1,0 +1,54 @@
+{
+  "exported_at": "2024-01-15T10:00:00Z",
+  "schema_version": 1,
+  "goals": [
+    {
+      "id": "goal-invalid-status",
+      "title": "Goal with invalid status",
+      "status": "not_a_valid_status",
+      "priority": 3,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-10T00:00:00Z"
+    },
+    {
+      "id": "goal-invalid-priority",
+      "title": "Goal with invalid priority",
+      "status": "active",
+      "priority": 10,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-10T00:00:00Z"
+    }
+  ],
+  "commitments": [
+    {
+      "id": "commit-invalid-status",
+      "title": "Commitment with invalid status",
+      "status": "not_a_valid_status",
+      "due_date": "2024-01-20T00:00:00Z",
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  ],
+  "accomplishments": [],
+  "context": [
+    {
+      "id": "ctx-invalid-entity-type",
+      "entity_type": "invalid_type",
+      "entity_id": "alice",
+      "title": "Context with invalid entity_type",
+      "body": "Some context",
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "ctx-invalid-urgency",
+      "entity_type": "person",
+      "entity_id": "bob",
+      "title": "Context with invalid urgency",
+      "body": "Some context",
+      "urgency": "not_a_valid_urgency",
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  ]
+}
