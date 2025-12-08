@@ -56,6 +56,10 @@ type GitHubConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Orgs limits searches to specific organizations (empty = all).
 	Orgs []string `yaml:"orgs,omitempty"`
+	// WatchedRepos tracks merged PRs in these repos regardless of user involvement.
+	// Format: "owner/repo" (e.g., "kubernetes/kubernetes")
+	// Limit: 50 repos maximum to prevent API abuse
+	WatchedRepos []string `yaml:"watched_repos,omitempty"`
 }
 
 // DigestConfig configures digest generation behavior.

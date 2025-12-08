@@ -1898,3 +1898,452 @@ func TestFetchPRCommentMentionsGraphQL(t *testing.T) {
 		})
 	}
 }
+
+// TestFetchPRReviewRequests_TimeBoundary verifies the time boundary filtering logic
+// in fetchPRReviewRequestsGraphQL. This test ensures that the .Before(since) check
+// correctly implements >= semantics for the since parameter.
+//
+// Background:
+// - GitHub search uses date granularity (updated:>=YYYY-MM-DD)
+// - Items on the boundary date but before the exact since time should be excluded
+// - Items at or after the exact since time should be included
+//
+// The fix changed !item.UpdatedAt.After(since) to item.UpdatedAt.Before(since).
+// This test verifies the corrected behavior.
+func TestFetchPRReviewRequests_TimeBoundary(t *testing.T) {
+	since := time.Date(2025, 12, 8, 10, 0, 0, 0, time.UTC)
+
+	//nolint:govet // test struct field order prioritizes readability
+	tests := []struct {
+		name         string
+		updatedAt    time.Time
+		wantIncluded bool
+	}{
+		{
+			name:         "exactly at since",
+			updatedAt:    since,
+			wantIncluded: true, // NOT before since, so included
+		},
+		{
+			name:         "1 second before since",
+			updatedAt:    since.Add(-time.Second),
+			wantIncluded: false, // IS before since, so excluded
+		},
+		{
+			name:         "1 second after since",
+			updatedAt:    since.Add(time.Second),
+			wantIncluded: true, // NOT before since, so included
+		},
+		{
+			name:         "1 hour before since same day",
+			updatedAt:    since.Add(-time.Hour),
+			wantIncluded: false, // IS before since, so excluded
+		},
+		{
+			name:         "1 hour after since same day",
+			updatedAt:    since.Add(time.Hour),
+			wantIncluded: true, // NOT before since, so included
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup mock auth provider
+			authProvider := newMockAuthProvider(auth.ServiceGitHub)
+
+			// Create mock PR with specific updatedAt timestamp
+			updatedAtISO := tt.updatedAt.Format(time.RFC3339)
+			searchData := []byte(fmt.Sprintf(`{
+				"data": {
+					"search": {
+						"issueCount": 1,
+						"nodes": [
+							{
+								"number": 123,
+								"title": "Test PR",
+								"url": "https://github.com/owner/repo/pull/123",
+								"updatedAt": "%s",
+								"repository": {"nameWithOwner": "owner/repo"},
+								"author": {"login": "testuser"}
+							}
+						],
+						"pageInfo": {"hasNextPage": false, "endCursor": ""}
+					}
+				}
+			}`, updatedAtISO))
+			authProvider.credential.setGraphQLResponse("graphql:search:pr-review", searchData)
+
+			// Full PR context response
+			contextData := []byte(fmt.Sprintf(`{
+				"data": {
+					"repository": {
+						"pullRequest": {
+							"number": 123,
+							"title": "Test PR",
+							"state": "OPEN",
+							"isDraft": false,
+							"mergeable": "MERGEABLE",
+							"url": "https://github.com/owner/repo/pull/123",
+							"createdAt": "2025-12-05T10:00:00Z",
+							"updatedAt": "%s",
+							"author": {"login": "testuser"},
+							"assignees": {"nodes": []},
+							"labels": {"nodes": []},
+							"milestone": null,
+							"body": "",
+							"headRefName": "feature",
+							"baseRefName": "main",
+							"additions": 10,
+							"deletions": 5,
+							"changedFiles": 2,
+							"files": {"nodes": []},
+							"reviewRequests": {
+								"nodes": [
+									{"requestedReviewer": {"login": "testuser", "__typename": "User"}}
+								]
+							},
+							"reviews": {"nodes": []},
+							"reviewThreads": {"nodes": []},
+							"comments": {"totalCount": 0, "nodes": []},
+							"commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]},
+							"closingIssuesReferences": {"nodes": []}
+						}
+					}
+				}
+			}`, updatedAtISO))
+			authProvider.credential.setGraphQLResponse("graphql:pr:context", contextData)
+
+			// Create datasource
+			ds, err := NewDataSource(authProvider)
+			if err != nil {
+				t.Fatalf("NewDataSource failed: %v", err)
+			}
+
+			// Create GraphQL client
+			gqlClient := NewGraphQLClient(authProvider.credential)
+
+			// Call method with our specific since time
+			events, err := ds.fetchPRReviewRequestsGraphQL(
+				context.Background(),
+				gqlClient,
+				since,
+				[]string{}, // no org filter
+			)
+
+			if err != nil {
+				t.Fatalf("fetchPRReviewRequestsGraphQL failed: %v", err)
+			}
+
+			// Verify inclusion/exclusion based on expected behavior
+			if tt.wantIncluded {
+				if len(events) != 1 {
+					t.Errorf("expected 1 event (included), got %d events", len(events))
+				}
+			} else {
+				if len(events) != 0 {
+					t.Errorf("expected 0 events (excluded), got %d events", len(events))
+				}
+			}
+		})
+	}
+}
+
+// TestFetchWatchedRepoMergedPRs verifies the fetchWatchedRepoMergedPRs method.
+// Per EFA 0001:
+//   - EventType: models.EventTypePRClosed
+//   - Priority: models.PriorityInfo (5)
+//   - RequiresAction: false
+//   - Title prefix: "Merged: "
+//   - user_relationships: [] (empty - no direct involvement)
+//   - Metadata includes watched_repo: true
+func TestFetchWatchedRepoMergedPRs(t *testing.T) {
+	//nolint:govet // test struct field order prioritizes readability
+	tests := []struct {
+		name           string
+		mockSetup      func(*mockGitHubDelegatedCredential)
+		since          time.Time
+		watchedRepos   []string
+		expectedEvents int
+		checkEvents    func(*testing.T, []models.Event)
+		expectedError  bool
+	}{
+		{
+			name: "merged PR in watched repo",
+			mockSetup: func(cred *mockGitHubDelegatedCredential) {
+				searchData := []byte(`{
+					"data": {
+						"search": {
+							"issueCount": 1,
+							"nodes": [
+								{
+									"number": 123,
+									"title": "Add new feature",
+									"url": "https://github.com/kubernetes/kubernetes/pull/123",
+									"mergedAt": "2025-12-06T10:00:00Z",
+									"updatedAt": "2025-12-06T10:00:00Z",
+									"repository": {"nameWithOwner": "kubernetes/kubernetes"},
+									"author": {"login": "contributor"}
+								}
+							],
+							"pageInfo": {"hasNextPage": false, "endCursor": ""}
+						}
+					}
+				}`)
+				cred.setGraphQLResponse("graphql:search:pr-watched", searchData)
+			},
+			since:          time.Date(2025, 12, 6, 0, 0, 0, 0, time.UTC),
+			watchedRepos:   []string{"kubernetes/kubernetes"},
+			expectedEvents: 1,
+			checkEvents: func(t *testing.T, events []models.Event) {
+				if len(events) == 0 {
+					t.Fatal("expected events, got none")
+				}
+
+				event := events[0]
+
+				// Verify event type
+				if event.Type != models.EventTypePRClosed {
+					t.Errorf("Type = %q, want %q", event.Type, models.EventTypePRClosed)
+				}
+
+				// Verify title has "Merged in <repo>:" prefix
+				if !strings.HasPrefix(event.Title, "Merged in kubernetes/kubernetes:") {
+					t.Errorf("Title = %q, want prefix %q", event.Title, "Merged in kubernetes/kubernetes:")
+				}
+
+				// Verify priority is Info (5)
+				if event.Priority != models.PriorityInfo {
+					t.Errorf("Priority = %d, want %d (Info)", event.Priority, models.PriorityInfo)
+				}
+
+				// Verify RequiresAction is false
+				if event.RequiresAction {
+					t.Error("RequiresAction = true, want false")
+				}
+
+				// Verify user_relationships is empty slice (no direct involvement)
+				relationships, ok := event.Metadata["user_relationships"].([]string)
+				if !ok {
+					t.Fatal("user_relationships not found or wrong type")
+				}
+				if len(relationships) != 0 {
+					t.Errorf("user_relationships = %v, want empty []", relationships)
+				}
+
+				// Verify watched_repo metadata is true
+				watchedRepo, ok := event.Metadata["watched_repo"].(bool)
+				if !ok || !watchedRepo {
+					t.Errorf("watched_repo = %v, want true", event.Metadata["watched_repo"])
+				}
+
+				// Verify repo metadata
+				repo, ok := event.Metadata["repo"].(string)
+				if !ok || repo != "kubernetes/kubernetes" {
+					t.Errorf("repo = %v, want 'kubernetes/kubernetes'", event.Metadata["repo"])
+				}
+
+				// Verify event passes validation
+				if err := event.Validate(); err != nil {
+					t.Errorf("event validation failed: %v", err)
+				}
+			},
+		},
+		{
+			name: "empty results - no merged PRs",
+			mockSetup: func(cred *mockGitHubDelegatedCredential) {
+				searchData := []byte(`{
+					"data": {
+						"search": {
+							"issueCount": 0,
+							"nodes": [],
+							"pageInfo": {"hasNextPage": false, "endCursor": ""}
+						}
+					}
+				}`)
+				cred.setGraphQLResponse("graphql:search:pr-watched", searchData)
+			},
+			since:          time.Date(2025, 12, 6, 0, 0, 0, 0, time.UTC),
+			watchedRepos:   []string{"kubernetes/kubernetes"},
+			expectedEvents: 0,
+		},
+		{
+			name: "multiple merged PRs from single watched repo",
+			mockSetup: func(cred *mockGitHubDelegatedCredential) {
+				searchData := []byte(`{
+					"data": {
+						"search": {
+							"issueCount": 2,
+							"nodes": [
+								{
+									"number": 100,
+									"title": "First PR",
+									"url": "https://github.com/kubernetes/kubernetes/pull/100",
+									"mergedAt": "2025-12-06T09:00:00Z",
+									"updatedAt": "2025-12-06T09:00:00Z",
+									"repository": {"nameWithOwner": "kubernetes/kubernetes"},
+									"author": {"login": "user1"}
+								},
+								{
+									"number": 101,
+									"title": "Second PR",
+									"url": "https://github.com/kubernetes/kubernetes/pull/101",
+									"mergedAt": "2025-12-06T10:00:00Z",
+									"updatedAt": "2025-12-06T10:00:00Z",
+									"repository": {"nameWithOwner": "kubernetes/kubernetes"},
+									"author": {"login": "user2"}
+								}
+							],
+							"pageInfo": {"hasNextPage": false, "endCursor": ""}
+						}
+					}
+				}`)
+				cred.setGraphQLResponse("graphql:search:pr-watched", searchData)
+			},
+			since:          time.Date(2025, 12, 6, 0, 0, 0, 0, time.UTC),
+			watchedRepos:   []string{"kubernetes/kubernetes"},
+			expectedEvents: 2,
+			checkEvents: func(t *testing.T, events []models.Event) {
+				if len(events) != 2 {
+					t.Fatalf("expected 2 events, got %d", len(events))
+				}
+
+				for i, event := range events {
+					if event.Type != models.EventTypePRClosed {
+						t.Errorf("event[%d].Type = %q, want %q", i, event.Type, models.EventTypePRClosed)
+					}
+					if event.Priority != models.PriorityInfo {
+						t.Errorf("event[%d].Priority = %d, want %d", i, event.Priority, models.PriorityInfo)
+					}
+					watchedRepo, ok := event.Metadata["watched_repo"].(bool)
+					if !ok || !watchedRepo {
+						t.Errorf("event[%d].watched_repo = %v, want true", i, event.Metadata["watched_repo"])
+					}
+				}
+			},
+		},
+		{
+			name: "no watched repos configured",
+			mockSetup: func(cred *mockGitHubDelegatedCredential) {
+				// No mock setup needed - empty watchedRepos should skip fetch
+			},
+			since:          time.Date(2025, 12, 6, 0, 0, 0, 0, time.UTC),
+			watchedRepos:   []string{},
+			expectedEvents: 0,
+		},
+		{
+			name: "search fails - returns error",
+			mockSetup: func(cred *mockGitHubDelegatedCredential) {
+				cred.setGraphQLError("graphql:search:pr-watched", fmt.Errorf("API rate limit exceeded"))
+			},
+			since:          time.Date(2025, 12, 6, 0, 0, 0, 0, time.UTC),
+			watchedRepos:   []string{"kubernetes/kubernetes"},
+			expectedEvents: 0,
+			expectedError:  true,
+		},
+		{
+			name: "time boundary - PR merged before since excluded",
+			mockSetup: func(cred *mockGitHubDelegatedCredential) {
+				// PR merged 1 hour before "since" time
+				searchData := []byte(`{
+					"data": {
+						"search": {
+							"issueCount": 1,
+							"nodes": [
+								{
+									"number": 123,
+									"title": "Old PR",
+									"url": "https://github.com/kubernetes/kubernetes/pull/123",
+									"mergedAt": "2025-12-06T09:00:00Z",
+									"updatedAt": "2025-12-06T09:00:00Z",
+									"repository": {"nameWithOwner": "kubernetes/kubernetes"},
+									"author": {"login": "contributor"}
+								}
+							],
+							"pageInfo": {"hasNextPage": false, "endCursor": ""}
+						}
+					}
+				}`)
+				cred.setGraphQLResponse("graphql:search:pr-watched", searchData)
+			},
+			since:          time.Date(2025, 12, 6, 10, 0, 0, 0, time.UTC), // 10:00 UTC
+			watchedRepos:   []string{"kubernetes/kubernetes"},
+			expectedEvents: 0, // PR at 09:00 should be excluded
+		},
+		{
+			name: "time boundary - PR merged at since included",
+			mockSetup: func(cred *mockGitHubDelegatedCredential) {
+				// PR merged exactly at "since" time
+				searchData := []byte(`{
+					"data": {
+						"search": {
+							"issueCount": 1,
+							"nodes": [
+								{
+									"number": 123,
+									"title": "Boundary PR",
+									"url": "https://github.com/kubernetes/kubernetes/pull/123",
+									"mergedAt": "2025-12-06T10:00:00Z",
+									"updatedAt": "2025-12-06T10:00:00Z",
+									"repository": {"nameWithOwner": "kubernetes/kubernetes"},
+									"author": {"login": "contributor"}
+								}
+							],
+							"pageInfo": {"hasNextPage": false, "endCursor": ""}
+						}
+					}
+				}`)
+				cred.setGraphQLResponse("graphql:search:pr-watched", searchData)
+			},
+			since:          time.Date(2025, 12, 6, 10, 0, 0, 0, time.UTC), // 10:00 UTC
+			watchedRepos:   []string{"kubernetes/kubernetes"},
+			expectedEvents: 1, // PR at 10:00 should be included (>= semantics)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup mock auth provider
+			authProvider := newMockAuthProvider(auth.ServiceGitHub)
+			tt.mockSetup(authProvider.credential)
+
+			// Create datasource with watched repos
+			var opts []Option
+			if len(tt.watchedRepos) > 0 {
+				opts = append(opts, WithWatchedRepos(tt.watchedRepos))
+			}
+			ds, err := NewDataSource(authProvider, opts...)
+			if err != nil {
+				t.Fatalf("NewDataSource failed: %v", err)
+			}
+
+			// Create GraphQL client
+			gqlClient := NewGraphQLClient(authProvider.credential)
+
+			// Call method
+			events, err := ds.fetchWatchedRepoMergedPRs(
+				context.Background(),
+				gqlClient,
+				tt.since,
+				tt.watchedRepos,
+			)
+
+			// Check error expectation
+			if tt.expectedError && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.expectedError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			// Check event count
+			if len(events) != tt.expectedEvents {
+				t.Errorf("expected %d events, got %d", tt.expectedEvents, len(events))
+			}
+
+			// Run custom checks
+			if tt.checkEvents != nil {
+				tt.checkEvents(t, events)
+			}
+		})
+	}
+}

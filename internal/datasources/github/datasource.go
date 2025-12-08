@@ -38,7 +38,8 @@ type githubCredential interface {
 //nolint:govet // Field order prioritizes readability over memory alignment
 type DataSource struct {
 	authProvider auth.AuthProvider
-	orgs         []string // organizations to search (optional filter)
+	orgs         []string   // organizations to search (optional filter)
+	watchedRepos []string   // repos to track merges in
 
 	// CODEOWNERS support (optional)
 	codeownersFetcher *codeowners.Fetcher      // fetches CODEOWNERS files from repos
@@ -76,6 +77,14 @@ func WithCodeownersFetcher(fetcher *codeowners.Fetcher) Option {
 func WithTeamResolver(resolver *codeowners.TeamResolver) Option {
 	return func(d *DataSource) {
 		d.teamResolver = resolver
+	}
+}
+
+// WithWatchedRepos configures repos to track merged PRs in.
+// PRs are tracked regardless of user involvement for awareness of activity.
+func WithWatchedRepos(repos []string) Option {
+	return func(d *DataSource) {
+		d.watchedRepos = repos
 	}
 }
 
@@ -270,11 +279,39 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 		result.Stats.APICallCount++
 	}
 
+	if ctx.Err() != nil {
+		result.Events = allEvents
+		result.Errors = fetchErrors
+		result.Partial = len(allEvents) > 0
+		result.Stats.Duration = time.Since(startTime)
+		return result, ctx.Err()
+	}
+
+	// 8. Watched repo merged PRs (optional awareness)
+	if len(d.watchedRepos) > 0 {
+		watchedMerges, err := d.fetchWatchedRepoMergedPRs(ctx, gqlClient, opts.Since, d.watchedRepos)
+		if err != nil {
+			fetchErrors = append(fetchErrors, fmt.Errorf("watched repos: %w", err))
+		} else {
+			allEvents = append(allEvents, watchedMerges...)
+			result.Stats.APICallCount++
+		}
+	}
+
+	// Check context before deduplication
+	if ctx.Err() != nil {
+		result.Events = allEvents
+		result.Errors = fetchErrors
+		result.Partial = len(allEvents) > 0
+		result.Stats.Duration = time.Since(startTime)
+		return result, ctx.Err()
+	}
+
 	// Deduplicate by URL (same item can appear in multiple searches)
 	// Also merges user_relationships when same PR appears for multiple reasons
 	allEvents = models.DeduplicateEvents(allEvents)
 
-	// 8. Check CODEOWNERS for PR events (optional)
+	// 9. Check CODEOWNERS for PR events (optional)
 	// Only process if codeownersFetcher is configured
 	if d.codeownersFetcher != nil {
 		currentUser, userErr := d.getCurrentUser(ctx, ghCred)

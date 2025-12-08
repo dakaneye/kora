@@ -246,6 +246,8 @@ func determineSearchKey(queryVar string) string {
 		return "graphql:search:pr-author"
 	case contains(queryVar, "involves:"):
 		return "graphql:search:pr-involves"
+	case contains(queryVar, "repo:") && contains(queryVar, "is:merged"):
+		return "graphql:search:pr-watched"
 	default:
 		return "graphql:search:default"
 	}

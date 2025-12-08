@@ -11,6 +11,13 @@ import (
 // GitHub usernames: alphanumeric, hyphens, 1-39 chars, no leading/trailing hyphens.
 var validOrgPattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$`)
 
+// validRepoPattern matches valid GitHub "owner/repo" format.
+// Allows alphanumeric, underscores, hyphens, and dots in both owner and repo.
+var validRepoPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$`)
+
+// maxWatchedRepos is the maximum number of watched repos to prevent API abuse.
+const maxWatchedRepos = 50
+
 // emailPattern is a basic email format validation.
 // Not a full RFC 5322 validator, but catches common errors.
 var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+$`)
@@ -66,6 +73,22 @@ func (c *DatasourcesConfig) Validate() error {
 		if !validOrgPattern.MatchString(org) {
 			errs = append(errs, fmt.Errorf("invalid github org name: %q", org))
 		}
+	}
+
+	// Validate watched repos format and limits
+	if len(c.GitHub.WatchedRepos) > maxWatchedRepos {
+		errs = append(errs, fmt.Errorf("github.watched_repos: maximum %d repos allowed, got %d", maxWatchedRepos, len(c.GitHub.WatchedRepos)))
+	}
+
+	seenRepos := make(map[string]bool)
+	for _, repo := range c.GitHub.WatchedRepos {
+		if !validRepoPattern.MatchString(repo) {
+			errs = append(errs, fmt.Errorf("github.watched_repos: invalid format %q, expected owner/repo", repo))
+		}
+		if seenRepos[repo] {
+			errs = append(errs, fmt.Errorf("github.watched_repos: duplicate repo %q", repo))
+		}
+		seenRepos[repo] = true
 	}
 
 	// Validate Google config

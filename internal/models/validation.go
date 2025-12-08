@@ -44,9 +44,10 @@ var allowedMetadataKeys = map[Source]map[string]struct{}{
 		"head_ref":              {},
 		"base_ref":              {},
 		// PR closure fields
-		"closed_at": {},
-		"merged_at": {},
-		"merged_by": {},
+		"closed_at":    {},
+		"merged_at":    {},
+		"merged_by":    {},
+		"watched_repo": {}, // Watched repo feature: marks events from configured repos
 		// Issue-specific fields
 		"comments":         {},
 		"linked_prs":       {},

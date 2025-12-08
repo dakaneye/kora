@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -141,6 +142,116 @@ func TestDatasourcesConfig_Validate(t *testing.T) {
 					Gmail: []GmailConfig{
 						{Email: "test@example.com"},
 					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid watched repos",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{"kubernetes/kubernetes", "golang/go"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty watched repos",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "watched repo with underscore and dots",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{"owner_name/repo.name", "my-org/my_project.v2"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "watched repo invalid format - no slash",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{"invalid-no-slash"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "watched repo invalid format - too many slashes",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{"owner/repo/extra"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "watched repo invalid format - empty owner",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{"/repo"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "watched repo invalid format - empty repo",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{"owner/"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "watched repo invalid format - special chars",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{"owner/repo@branch"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "watched repos duplicate",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: []string{"kubernetes/kubernetes", "golang/go", "kubernetes/kubernetes"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "watched repos exceeds maximum",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: makeRepoList(51),
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "watched repos at maximum",
+			cfg: DatasourcesConfig{
+				GitHub: GitHubConfig{
+					Enabled:      true,
+					WatchedRepos: makeRepoList(50),
 				},
 			},
 			wantErr: false,
@@ -366,4 +477,13 @@ func TestValidFormats(t *testing.T) {
 			t.Errorf("Unexpected format: %s", f)
 		}
 	}
+}
+
+// makeRepoList creates a list of unique repos for testing limits.
+func makeRepoList(n int) []string {
+	repos := make([]string, n)
+	for i := range n {
+		repos[i] = fmt.Sprintf("org%d/repo%d", i, i)
+	}
+	return repos
 }

@@ -4,7 +4,7 @@ CLI tool that aggregates GitHub activity into a prioritized morning digest.
 
 ## Features
 
-- **GitHub**: PR review requests, PR mentions, issue mentions, issue assignments, authored PRs, closed/merged PRs, PR comment @mentions
+- **GitHub**: PR review requests, PR mentions, issue mentions, issue assignments, authored PRs, closed/merged PRs, PR comment @mentions, watched repo merges
 - **Output formats**: JSON, JSON (pretty-printed), text
 - **Authentication**: GitHub via `gh` CLI delegation
 - **Concurrent fetching**: Datasources run in parallel with graceful failure handling
@@ -71,6 +71,10 @@ datasources:
     enabled: true
     orgs:
       - my-org
+    # Track merged PRs in repos you care about (even if not directly involved)
+    watched_repos:
+      - kubernetes/kubernetes
+      - golang/go
 
 digest:
   window: 16h
@@ -101,6 +105,10 @@ kora digest --format text
 
 # Custom config file
 kora digest --config ~/custom-kora.yaml
+
+# Suggest repos to watch based on your activity
+kora suggest-repos
+kora suggest-repos --days 90 --top 5
 
 # Version info
 kora version

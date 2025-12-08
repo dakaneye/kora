@@ -296,6 +296,127 @@ func TestGitHubDataSource_ContextCancellation(t *testing.T) {
 	}
 }
 
+// TestGitHubDataSource_WatchedRepos tests fetching merged PRs from watched repos.
+func TestGitHubDataSource_WatchedRepos(t *testing.T) {
+	requireGitHubAuth(t)
+
+	ctx := context.Background()
+
+	authProvider := github.NewGitHubAuthProvider("")
+	if err := authProvider.Authenticate(ctx); err != nil {
+		t.Fatalf("GitHub authentication failed: %v", err)
+	}
+
+	// Use a well-known public repo with frequent merges
+	watchedRepos := []string{"kubernetes/kubernetes"}
+
+	ds, err := githubds.NewDataSource(authProvider, githubds.WithWatchedRepos(watchedRepos))
+	if err != nil {
+		t.Fatalf("NewDataSource() error = %v", err)
+	}
+
+	t.Run("Fetch with watched repos", func(t *testing.T) {
+		// Use 7-day window to increase chance of finding merged PRs
+		opts := datasources.FetchOptions{
+			Since: time.Now().Add(-7 * 24 * time.Hour),
+			Limit: 10,
+		}
+
+		result, err := ds.Fetch(ctx, opts)
+		if err != nil {
+			t.Fatalf("Fetch() error = %v", err)
+		}
+
+		if result == nil {
+			t.Fatal("Fetch() returned nil result")
+		}
+
+		t.Logf("Fetched %d total events (including watched repos)", len(result.Events))
+
+		// Count watched repo events
+		watchedRepoEvents := 0
+		for _, event := range result.Events {
+			if event.Type == models.EventTypePRClosed {
+				watchedRepoEvents++
+
+				// Validate watched repo events specifically
+				if err := event.Validate(); err != nil {
+					t.Errorf("Watched repo event validation error: %v", err)
+				}
+
+				// Verify watched_repo metadata is set
+				if watched, ok := event.Metadata["watched_repo"].(bool); !ok || !watched {
+					t.Errorf("Event missing watched_repo=true metadata: %+v", event.Metadata)
+				}
+
+				// Verify repo metadata matches a watched repo
+				if repo, ok := event.Metadata["repo"].(string); ok {
+					found := false
+					for _, wr := range watchedRepos {
+						if repo == wr {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Event repo %q not in watched repos list", repo)
+					}
+				}
+
+				// Verify timestamp is within window
+				if event.Timestamp.Before(opts.Since) {
+					t.Errorf("Watched repo event timestamp %v before Since %v",
+						event.Timestamp, opts.Since)
+				}
+
+				// Verify priority is Info (5) for watched repo events
+				if event.Priority != models.PriorityInfo {
+					t.Errorf("Watched repo event priority = %d, want %d (PriorityInfo)",
+						event.Priority, models.PriorityInfo)
+				}
+
+				// Verify RequiresAction is false
+				if event.RequiresAction {
+					t.Error("Watched repo event RequiresAction = true, want false")
+				}
+			}
+		}
+
+		t.Logf("Found %d watched repo events", watchedRepoEvents)
+
+		if watchedRepoEvents == 0 {
+			t.Log("No merged PRs found in watched repos within time window - this is acceptable for integration tests")
+		}
+	})
+
+	t.Run("Fetch with no watched repos configured", func(t *testing.T) {
+		// Create datasource without watched repos
+		dsNoWatch, err := githubds.NewDataSource(authProvider)
+		if err != nil {
+			t.Fatalf("NewDataSource() error = %v", err)
+		}
+
+		opts := datasources.FetchOptions{
+			Since: testSince24h(),
+			Limit: 10,
+		}
+
+		result, err := dsNoWatch.Fetch(ctx, opts)
+		if err != nil {
+			t.Fatalf("Fetch() error = %v", err)
+		}
+
+		// Verify no watched repo events when not configured
+		for _, event := range result.Events {
+			if event.Type == models.EventTypePRClosed {
+				if watched, ok := event.Metadata["watched_repo"].(bool); ok && watched {
+					t.Error("Got watched_repo event when watched repos not configured")
+				}
+			}
+		}
+	})
+}
+
 // TestGitHubDataSource_InvalidOptions tests validation of fetch options.
 func TestGitHubDataSource_InvalidOptions(t *testing.T) {
 	requireGitHubAuth(t)

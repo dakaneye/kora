@@ -203,6 +203,9 @@ func initDatasources(ctx context.Context, cfg *config.Config) (sources []datasou
 			if len(cfg.Datasources.GitHub.Orgs) > 0 {
 				opts = append(opts, githubds.WithOrgs(cfg.Datasources.GitHub.Orgs))
 			}
+			if len(cfg.Datasources.GitHub.WatchedRepos) > 0 {
+				opts = append(opts, githubds.WithWatchedRepos(cfg.Datasources.GitHub.WatchedRepos))
+			}
 			ghDS, err := githubds.NewDataSource(ghAuth, opts...)
 			if err != nil {
 				initErrors["github"] = fmt.Errorf("init failed: %w", err)

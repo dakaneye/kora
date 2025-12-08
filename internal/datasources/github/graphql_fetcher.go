@@ -49,8 +49,11 @@ func (d *DataSource) fetchPRReviewRequestsGraphQL(ctx context.Context, client *G
 		default:
 		}
 
-		// Skip items that are before the since time
-		if !item.UpdatedAt.After(since) {
+		// Filter items before the since timestamp.
+		// Note: GitHub search uses date granularity (updated:>=YYYY-MM-DD), so items
+		// on the boundary date but before the exact since time are returned by search.
+		// Using Before() correctly implements >= semantics for the since parameter.
+		if item.UpdatedAt.Before(since) {
 			continue
 		}
 
@@ -149,7 +152,7 @@ func (d *DataSource) fetchPRMentionsGraphQL(ctx context.Context, client *GraphQL
 		default:
 		}
 
-		if !item.UpdatedAt.After(since) {
+		if item.UpdatedAt.Before(since) {
 			continue
 		}
 
@@ -214,7 +217,7 @@ func (d *DataSource) fetchIssueMentionsGraphQL(ctx context.Context, client *Grap
 		default:
 		}
 
-		if !item.UpdatedAt.After(since) {
+		if item.UpdatedAt.Before(since) {
 			continue
 		}
 
@@ -279,7 +282,7 @@ func (d *DataSource) fetchAssignedIssuesGraphQL(ctx context.Context, client *Gra
 		default:
 		}
 
-		if !item.UpdatedAt.After(since) {
+		if item.UpdatedAt.Before(since) {
 			continue
 		}
 
@@ -391,8 +394,7 @@ func (d *DataSource) fetchAuthoredPRsGraphQL(ctx context.Context, client *GraphQ
 		default:
 		}
 
-		// Skip items that are before the since time
-		if !item.UpdatedAt.After(since) {
+		if item.UpdatedAt.Before(since) {
 			continue
 		}
 
@@ -530,8 +532,7 @@ func (d *DataSource) fetchClosedPRsGraphQL(ctx context.Context, client *GraphQLC
 		default:
 		}
 
-		// Skip items that are before the since time
-		if !item.UpdatedAt.After(since) {
+		if item.UpdatedAt.Before(since) {
 			continue
 		}
 
@@ -618,6 +619,118 @@ func checkCommentMentions(metadata map[string]any, username string) bool {
 	return false
 }
 
+// fetchWatchedRepoMergedPRs fetches recently merged PRs from watched repositories.
+// Query per repo: is:pr is:merged repo:OWNER/REPO merged:>=TIMESTAMP
+//
+// Per EFA 0001:
+//   - EventType: models.EventTypePRClosed (reuses existing type)
+//   - Priority: models.PriorityInfo (5) - informational awareness
+//   - RequiresAction: false
+//   - Metadata: includes watched_repo: true
+//   - user_relationships: [] (empty - user not involved)
+//
+// Per EFA 0003: Context must be used for all network operations.
+func (d *DataSource) fetchWatchedRepoMergedPRs(
+	ctx context.Context,
+	client *GraphQLClient,
+	since time.Time,
+	watchedRepos []string,
+) ([]models.Event, error) {
+	if len(watchedRepos) == 0 {
+		return nil, nil
+	}
+
+	events := make([]models.Event, 0)
+	var errs []error
+
+	for _, repo := range watchedRepos {
+		// Check context cancellation between repos
+		select {
+		case <-ctx.Done():
+			// Return collected events and context error
+			if len(errs) > 0 {
+				return events, fmt.Errorf("context canceled after errors: %v", errs)
+			}
+			return events, ctx.Err()
+		default:
+		}
+
+		// Build search query: is:pr is:merged repo:OWNER/REPO merged:>=DATE
+		query := fmt.Sprintf("is:pr is:merged repo:%s merged:>=%s", repo, since.Format("2006-01-02"))
+
+		// Search with limit=20 per repo to bound API usage
+		items, err := searchPRs(ctx, client, query, 20)
+		if err != nil {
+			// Accumulate error but continue with other repos (partial success)
+			errs = append(errs, fmt.Errorf("search watched repo %s: %w", repo, err))
+			continue
+		}
+
+		for _, item := range items {
+			// Check context cancellation between items
+			select {
+			case <-ctx.Done():
+				if len(errs) > 0 {
+					return events, fmt.Errorf("context canceled after errors: %v", errs)
+				}
+				return events, ctx.Err()
+			default:
+			}
+
+			// Filter items before the since timestamp
+			if item.UpdatedAt.Before(since) {
+				continue
+			}
+
+			// Fetch full PR context
+			metadata, err := fetchPRFullContext(ctx, client, item.Owner, item.Repo, item.Number)
+			if err != nil {
+				// Use basic metadata from search results if context fetch fails
+				metadata = map[string]any{
+					"repo":               item.Owner + "/" + item.Repo,
+					"number":             item.Number,
+					"state":              "merged",
+					"author_login":       item.Author,
+					"user_relationships": []string{},
+					"watched_repo":       true,
+				}
+			} else {
+				// Add watched repo metadata
+				metadata["user_relationships"] = []string{}
+				metadata["watched_repo"] = true
+			}
+
+			// Determine title prefix based on state (merged vs closed)
+			titlePrefix := "Merged in " + repo + ": "
+			if state, ok := metadata["state"].(string); ok && state != "merged" {
+				titlePrefix = "Closed in " + repo + ": "
+			}
+
+			event := models.Event{
+				Type:   models.EventTypePRClosed,
+				Title:  truncateTitle(titlePrefix + item.Title),
+				Source: models.SourceGitHub,
+				URL:    item.URL,
+				Author: models.Person{
+					Name:     item.Author,
+					Username: item.Author,
+				},
+				Timestamp:      item.UpdatedAt,
+				Priority:       models.PriorityInfo, // Per EFA 0001: watched repo PRs are informational
+				RequiresAction: false,
+				Metadata:       metadata,
+			}
+			events = append(events, event)
+		}
+	}
+
+	// Return all events even if some repos failed
+	if len(errs) > 0 {
+		return events, fmt.Errorf("partial failure fetching watched repos: %v", errs)
+	}
+	return events, nil
+}
+
 // fetchPRCommentMentionsGraphQL fetches PRs where user is @mentioned in comments or reviews.
 // Query: involves:LOGIN type:pr updated:>=DATE
 //
@@ -665,8 +778,7 @@ func (d *DataSource) fetchPRCommentMentionsGraphQL(ctx context.Context, client *
 		default:
 		}
 
-		// Skip items that are before the since time
-		if !item.UpdatedAt.After(since) {
+		if item.UpdatedAt.Before(since) {
 			continue
 		}
 

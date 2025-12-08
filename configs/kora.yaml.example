@@ -11,6 +11,13 @@ datasources:
     # orgs:
     #   - my-org
     #   - another-org
+    #
+    # Track merged PRs in repos you care about, even if you're not directly involved.
+    # Shows merged PRs as low-priority (informational) events in your digest.
+    # Format: owner/repo
+    # watched_repos:
+    #   - kubernetes/kubernetes
+    #   - golang/go
 
   slack:
     # Enable Slack datasource (requires token in keychain or KORA_SLACK_TOKEN env var)

@@ -356,6 +356,88 @@ func TestDeduplicateEvents(t *testing.T) {
 				"https://github.com/org/repo/pull/600": {"author", "reviewer"}, // sorted alphabetically
 			},
 		},
+		{
+			name: "user authored PR in watched repo - author event wins over watched repo event",
+			events: []Event{
+				{
+					URL:       "https://github.com/kubernetes/kubernetes/pull/123",
+					Type:      EventTypePRAuthor,
+					Title:     "My PR in watched repo",
+					Source:    SourceGitHub,
+					Author:    Person{Username: "me"},
+					Timestamp: now,
+					Priority:  PriorityMedium, // 3 - author
+					Metadata: map[string]any{
+						"user_relationships": []string{"author"},
+						"repo":               "kubernetes/kubernetes",
+						"number":             123,
+					},
+				},
+				{
+					URL:       "https://github.com/kubernetes/kubernetes/pull/123",
+					Type:      EventTypePRClosed,
+					Title:     "PR merged in watched repo",
+					Source:    SourceGitHub,
+					Author:    Person{Username: "me"},
+					Timestamp: now,
+					Priority:  PriorityInfo, // 5 - watched repo
+					Metadata: map[string]any{
+						"user_relationships": []string{},
+						"watched_repo":       true,
+						"repo":               "kubernetes/kubernetes",
+						"number":             123,
+					},
+				},
+			},
+			wantLen: 1,
+			wantType: map[string]EventType{
+				"https://github.com/kubernetes/kubernetes/pull/123": EventTypePRAuthor, // author wins
+			},
+			wantRels: map[string][]string{
+				"https://github.com/kubernetes/kubernetes/pull/123": {"author"}, // author relationship preserved
+			},
+		},
+		{
+			name: "reviewer on PR in watched repo - reviewer event wins over watched repo event",
+			events: []Event{
+				{
+					URL:       "https://github.com/kubernetes/kubernetes/pull/456",
+					Type:      EventTypePRReview,
+					Title:     "Review requested on watched repo PR",
+					Source:    SourceGitHub,
+					Author:    Person{Username: "contributor"},
+					Timestamp: now,
+					Priority:  PriorityHigh, // 2 - reviewer
+					Metadata: map[string]any{
+						"user_relationships": []string{"direct_reviewer"},
+						"repo":               "kubernetes/kubernetes",
+						"number":             456,
+					},
+				},
+				{
+					URL:       "https://github.com/kubernetes/kubernetes/pull/456",
+					Type:      EventTypePRClosed,
+					Title:     "PR merged in watched repo",
+					Source:    SourceGitHub,
+					Author:    Person{Username: "contributor"},
+					Timestamp: now,
+					Priority:  PriorityInfo, // 5 - watched repo
+					Metadata: map[string]any{
+						"user_relationships": []string{},
+						"watched_repo":       true,
+						"repo":               "kubernetes/kubernetes",
+						"number":             456,
+					},
+				},
+			},
+			wantLen: 1,
+			wantType: map[string]EventType{
+				"https://github.com/kubernetes/kubernetes/pull/456": EventTypePRReview, // reviewer wins
+			},
+			wantRels: map[string][]string{
+				"https://github.com/kubernetes/kubernetes/pull/456": {"direct_reviewer"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -405,6 +487,72 @@ func TestDeduplicateEvents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDeduplicateEvents_WatchedRepoMetadataNotMerged(t *testing.T) {
+	now := time.Now().UTC()
+
+	// When user's own PR exists in a watched repo, the author event (priority 3) wins
+	// over the watched repo event (priority 5). The watched_repo metadata from the
+	// lower-priority event should NOT appear in the merged result.
+	events := []Event{
+		{
+			URL:       "https://github.com/kubernetes/kubernetes/pull/789",
+			Type:      EventTypePRAuthor,
+			Title:     "My PR",
+			Source:    SourceGitHub,
+			Author:    Person{Username: "me"},
+			Timestamp: now,
+			Priority:  PriorityMedium, // 3 - author
+			Metadata: map[string]any{
+				"user_relationships": []string{"author"},
+				"repo":               "kubernetes/kubernetes",
+				"number":             789,
+				"state":              "merged",
+			},
+		},
+		{
+			URL:       "https://github.com/kubernetes/kubernetes/pull/789",
+			Type:      EventTypePRClosed,
+			Title:     "PR merged in watched repo",
+			Source:    SourceGitHub,
+			Author:    Person{Username: "me"},
+			Timestamp: now,
+			Priority:  PriorityInfo, // 5 - watched repo
+			Metadata: map[string]any{
+				"user_relationships": []string{},
+				"watched_repo":       true,
+				"repo":               "kubernetes/kubernetes",
+				"number":             789,
+			},
+		},
+	}
+
+	got := DeduplicateEvents(events)
+
+	if len(got) != 1 {
+		t.Fatalf("got %d events, want 1", len(got))
+	}
+
+	merged := got[0]
+
+	// Verify author event metadata is preserved
+	if merged.Metadata["repo"] != "kubernetes/kubernetes" {
+		t.Errorf("repo metadata not preserved")
+	}
+	if merged.Metadata["state"] != "merged" {
+		t.Errorf("state metadata not preserved from author event")
+	}
+
+	// Verify watched_repo metadata is NOT present (it was only on the lower-priority event)
+	if _, hasWatchedRepo := merged.Metadata["watched_repo"]; hasWatchedRepo {
+		t.Errorf("watched_repo metadata should not be present when author event wins")
+	}
+
+	// Verify type is from author event
+	if merged.Type != EventTypePRAuthor {
+		t.Errorf("Type = %v, want %v", merged.Type, EventTypePRAuthor)
 	}
 }
 

@@ -227,6 +227,7 @@ Rich context for PRs to enable Claude to assess relevance without additional que
 | `closed_at` | string | RFC3339 close timestamp (for pr_closed events) |
 | `merged_at` | string | RFC3339 merge timestamp (for pr_closed events) |
 | `merged_by` | string | Username who merged (for pr_closed events) |
+| `watched_repo` | bool | Whether this PR is from a watched repo (user not directly involved) |
 
 #### GitHub Issue Metadata
 
@@ -350,6 +351,7 @@ var allowedMetadataKeys = map[Source]map[string]struct{}{
         "mergeable":            {},
         "head_ref":             {},
         "base_ref":             {},
+        "watched_repo":         {},
         // Issue-specific fields
         "comments":             {},
         "linked_prs":           {},
@@ -587,6 +589,8 @@ The `user_relationships` metadata field indicates why the user is seeing this ev
 - `"codeowner"` - User owns changed files per CODEOWNERS
 - `"assignee"` - User is assigned to this issue
 
+**For watched repo PRs** where the user has no direct involvement (not author, reviewer, mentioned, or codeowner), `user_relationships` is an empty array `[]`.
+
 **Deduplication behavior:**
 When the same PR appears in multiple searches (e.g., user is both mentioned and a reviewer), events are deduplicated by URL and relationships are merged. The highest-priority relationship determines the EventType:
 1. `pr_review` (direct_reviewer or team_reviewer present)
@@ -748,6 +752,35 @@ When the same PR appears in multiple searches (e.g., user is both mentioned and 
     "deletions": 120,
     "labels": ["feature", "security"],
     "milestone": "v2.1",
+    "ci_rollup": "success"
+  }
+}
+```
+
+**GitHub PR Watched Repo (User watches repo but has no direct involvement):**
+```json
+{
+  "type": "pr_closed",
+  "title": "Merged in kubernetes/kubernetes: Add pod security",
+  "source": "github",
+  "url": "https://github.com/kubernetes/kubernetes/pull/12345",
+  "author": {
+    "name": "External Contributor",
+    "username": "external-dev"
+  },
+  "timestamp": "2025-12-08T10:30:00Z",
+  "priority": 5,
+  "requires_action": false,
+  "metadata": {
+    "repo": "kubernetes/kubernetes",
+    "number": 12345,
+    "state": "merged",
+    "author_login": "external-dev",
+    "user_relationships": [],
+    "watched_repo": true,
+    "merged_at": "2025-12-08T10:30:00Z",
+    "merged_by": "maintainer",
+    "files_changed_count": 3,
     "ci_rollup": "success"
   }
 }
@@ -1116,6 +1149,9 @@ metadata["user_relationships"] = []string{"codeowner"}
 
 // For multiple relationships (deduplicated event)
 metadata["user_relationships"] = []string{"mentioned", "codeowner"}
+
+// For watched repo PRs with no direct involvement
+metadata["user_relationships"] = []string{}
 ```
 
 **FORBIDDEN:**
