@@ -35,3 +35,4 @@ gosec.sarif
 
 # Build artifacts
 dist/
+kora

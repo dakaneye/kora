@@ -354,6 +354,155 @@ kora digest --since 16h --format json
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Memory Store Responsibilities
+
+**Memory Store follows a different pattern than external APIs:**
+
+External APIs (GitHub, Calendar, future datasources) require Kora as an intermediary for auth, rate limiting, and data normalization. Local memory storage has different concerns.
+
+#### The Split
+
+```
+External APIs:          Kora fetches → Claude receives events
+Local Memory:           Kora owns schema → Claude accesses directly via MCP
+```
+
+**Kora's role (Schema Owner):**
+- `kora init` - Create database with schema
+- `kora migrate` - Apply schema migrations
+- `kora db validate` - Check data integrity
+- `kora db export/import` - User data management
+- Schema versioning and evolution
+- Database triggers (timestamps, FTS sync)
+
+**Claude's role (Direct Access):**
+- Read/write via SQLite MCP server
+- Full SQL flexibility for queries
+- No Kora wrapper needed for CRUD operations
+- Natural language to SQL translation
+
+#### Why This Split?
+
+**External APIs need Kora because:**
+- Authentication and credential management
+- Rate limiting and retries
+- API-specific pagination and cursors
+- Data normalization (GitHub → Event model)
+- Concurrent fetching with timeouts
+
+**Local SQLite doesn't need Kora wrapper because:**
+- No authentication required (local file)
+- No rate limits
+- No network latency
+- Direct SQL is more flexible than a Go API
+- Claude MCP server provides excellent SQLite access
+
+#### Implementation Example
+
+```bash
+# User initializes memory store
+kora init
+
+# Creates ~/.kora/memory.db with schema:
+# - people (name, relationship, context)
+# - projects (name, status, goals)
+# - notes (body, tags, links)
+# - memory_metadata (version, last_migration)
+
+# Claude accesses directly via MCP
+sqlite-mcp:///~/.kora/memory.db
+SELECT * FROM people WHERE relationship = 'tech_lead'
+INSERT INTO notes (body, tags) VALUES (?, ?)
+```
+
+```bash
+# Kora provides admin commands for user oversight
+kora db validate              # Check integrity
+kora db export > backup.sql   # User-controlled backup
+kora db stats                 # Show usage statistics
+```
+
+#### Schema Governance
+
+Kora owns the schema, not Claude:
+
+**Kora controls:**
+- Table definitions
+- Indexes and constraints
+- Triggers for automatic fields
+- Full-text search configuration
+- Migration scripts
+
+**Claude adapts to schema:**
+- Queries current schema on first use
+- Uses whatever columns Kora provides
+- Requests schema changes through user (who runs migrations)
+
+```sql
+-- Kora migration example (internal/db/migrations/001_initial.sql)
+CREATE TABLE people (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    relationship TEXT,
+    context TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER people_updated
+    AFTER UPDATE ON people
+    BEGIN
+        UPDATE people SET updated_at = CURRENT_TIMESTAMP
+        WHERE id = NEW.id;
+    END;
+```
+
+#### Guardrails Without Abstraction
+
+Kora provides guardrails without forcing all access through Go code:
+
+```bash
+# Before Claude makes changes, user can review
+kora db validate
+# Checks:
+# - Foreign key integrity
+# - Required fields present
+# - Text search index in sync
+# - Schema version matches migrations
+
+# If Claude corrupts data, user can rollback
+kora db rollback --to-backup backup.sql
+```
+
+#### Data Ownership
+
+The memory store is **user data**, not application state:
+
+- User controls backups and exports
+- User can inspect with standard SQLite tools
+- User decides when to run migrations
+- Claude asks permission before schema changes
+
+```bash
+# User owns their data
+sqlite3 ~/.kora/memory.db ".schema"
+sqlite3 ~/.kora/memory.db "SELECT * FROM people"
+
+# Kora helps with common operations
+kora db export --format json > people.json
+kora db import --merge people.json
+```
+
+#### Performance Characteristics
+
+**Local SQLite is fast:**
+- No network latency
+- No auth roundtrip
+- No rate limits
+- Excellent for small datasets (<1M rows)
+
+**Kora doesn't need to optimize memory access** - SQLite is already optimized. Kora's job is schema management, not query optimization.
+
 ## Why This Design?
 
 ### Claude Has User Context, Kora Doesn't
@@ -687,6 +836,64 @@ kora digest --format summary   # Not a format, this is synthesis
 kora digest --format brief     # Brevity is Claude's presentation choice
 ```
 
+### Rule 11: Memory Store - Use SQLite MCP, Not Kora Wrappers
+
+**Claude accesses local memory directly via SQLite MCP server.**
+
+**CORRECT:**
+```python
+# Claude uses SQLite MCP for read/write
+people = sqlite_query("SELECT * FROM people WHERE relationship = ?", ["tech_lead"])
+
+# Claude inserts notes directly
+sqlite_execute(
+    "INSERT INTO notes (body, tags) VALUES (?, ?)",
+    ["Meeting with Alice about auth refactor", "work,auth"]
+)
+```
+
+**FORBIDDEN:**
+```python
+# STOP - don't expect Kora CRUD wrappers
+kora.memory.create_person(name="Alice", relationship="tech_lead")  # NOT A KORA API
+kora.memory.search_notes(query="auth")  # Use SQL directly
+```
+
+### Rule 12: Schema Changes Go Through Kora
+
+**Only Kora runs migrations. Claude requests changes through user.**
+
+**CORRECT:**
+```
+Claude: "I'd like to add a 'last_contacted' field to the people table.
+         Should I create a migration for that? You'd run: kora migrate"
+```
+
+**FORBIDDEN:**
+```sql
+-- STOP - Claude directly altering schema
+ALTER TABLE people ADD COLUMN last_contacted TIMESTAMP;
+-- Schema changes must go through Kora migrations
+```
+
+### Rule 13: User Runs Validation, Not Claude
+
+**Claude suggests validation, user runs it.**
+
+**CORRECT:**
+```
+Claude: "I've updated several records. You may want to run:
+         kora db validate
+         to ensure everything is consistent."
+```
+
+**FORBIDDEN:**
+```bash
+# STOP - Claude automatically running admin commands
+kora db validate  # User should decide when to validate
+kora db export    # User controls backups
+```
+
 ### Stop and Ask Triggers
 
 **STOP AND ASK THE USER** if you encounter:
@@ -695,6 +902,8 @@ kora digest --format brief     # Brevity is Claude's presentation choice
 2. **Request for Kora to understand context**: Explain Kora is stateless
 3. **Request for Kora to rank or prioritize**: Explain Claude does this
 4. **Request for "smart" Kora features**: Ask if this belongs in Claude instead
+5. **Request for Kora memory CRUD wrappers**: Explain SQLite MCP pattern
+6. **Schema changes to memory store**: Explain migration process
 
 ### Code Protection Comments
 
@@ -719,6 +928,16 @@ type FetchOptions struct {
 }
 ```
 
+```go
+// Package db provides schema management for local memory store.
+// Ground truth defined in specs/efas/0004-tool-responsibility.md
+//
+// KORA OWNS THE SCHEMA. Claude accesses via SQLite MCP.
+// Schema changes MUST go through migrations (kora migrate).
+// IT IS FORBIDDEN to add CRUD wrappers - Claude uses SQL directly.
+package db
+```
+
 ### Summary Table
 
 | Responsibility | Kora (Data Layer) | Claude (Intelligence Layer) |
@@ -734,6 +953,10 @@ type FetchOptions struct {
 | Present to user | NO | YES |
 | Remember context | NO | YES |
 | Make judgments | NO | YES |
+| **Memory store schema** | YES | NO |
+| **Memory store migrations** | YES | NO |
+| **Memory store CRUD** | NO (MCP direct) | YES (via SQLite MCP) |
+| **Memory store backups** | YES (admin tools) | NO |
 
 ## Open Questions
 

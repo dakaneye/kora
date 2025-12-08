@@ -12,7 +12,9 @@ Kora aggregates data from GitHub to provide morning briefings that Claude can in
 kora/
 ├── cmd/
 │   └── kora/                      # Main CLI entry point
-│       └── main.go
+│       ├── main.go
+│       ├── init.go                # Initialize memory store
+│       └── db.go                  # Database admin commands
 │
 ├── internal/
 │   ├── config/                    # Configuration management
@@ -43,11 +45,16 @@ kora/
 │   │   ├── person.go
 │   │   └── priority.go
 │   │
-│   └── output/                    # Output formatting
-│       ├── formatter.go           # Interface
-│       ├── terminal.go
-│       ├── markdown.go
-│       └── json.go
+│   ├── output/                    # Output formatting
+│   │   ├── formatter.go           # Interface
+│   │   ├── terminal.go
+│   │   ├── markdown.go
+│   │   └── json.go
+│   │
+│   └── storage/                   # Memory store
+│       ├── schema.sql             # SQLite schema with FTS5
+│       ├── store.go               # Store initialization and access
+│       └── migrations.go          # Version-tracked schema migrations
 │
 ├── pkg/
 │   ├── clock/                     # Time utilities
@@ -68,17 +75,20 @@ kora/
 │
 ├── specs/                         # Design documents
 │   ├── prototype/                 # Original design notes
+│   ├── memory-mcp.md              # MCP configuration for SQLite access
 │   ├── efas/                      # Explainer For Agents (ground truth)
 │   │   ├── AUTHORING.md           # How to write EFAs
 │   │   ├── 0001-event-model.md    # Event struct, validation
 │   │   ├── 0002-auth-provider.md  # Auth interfaces, security
-│   │   └── 0003-datasource-interface.md  # DataSource interface
+│   │   ├── 0003-datasource-interface.md  # DataSource interface
+│   │   └── 0004-tool-responsibility.md   # Data vs intelligence separation
 │   └── repository-layout.md       # This document
 │
 ├── tests/
 │   ├── integration/
 │   │   ├── digest_test.go
-│   │   └── github_auth_test.go
+│   │   ├── github_auth_test.go
+│   │   └── memory_test.go         # Memory store lifecycle tests
 │   └── testdata/
 │       └── github_prs.json
 │
@@ -104,6 +114,7 @@ The `specs/efas/` directory contains **Explainer For Agents (EFAs)** - formal sp
 - **EFA 0001**: Event model, validation rules, metadata keys
 - **EFA 0002**: Auth providers, credential security, CLI delegation
 - **EFA 0003**: DataSource interface, concurrency, partial success
+- **EFA 0004**: Tool responsibility, data vs intelligence separation
 
 **Protected code patterns** are marked with comments like:
 ```go
@@ -173,6 +184,8 @@ digest:
   timezone: America/Los_Angeles
   output: terminal
 
+data_dir: ~/.kora/data
+
 security:
   redact_credentials: true
   datasource_timeout: 30s
@@ -184,6 +197,12 @@ security:
 - Don't fail entire digest if one source fails
 - Log errors, continue with partial results
 - Respect timeouts (30s default)
+
+### 6. Memory Store
+**Schema ownership**: Kora owns schema, migrations, admin commands
+**Claude access**: Direct via SQLite MCP server (no CRUD wrapper)
+**Storage**: `~/.kora/data/kora.db`
+**Tables**: goals, commitments, accomplishments, context, memory_search (FTS5)
 
 ## Security Design
 
@@ -217,7 +236,7 @@ security:
    - No telemetry or analytics
 
 3. **Data Protection**
-   - In-memory only (no disk persistence in v1)
+   - Memory store uses SQLite at `~/.kora/data/kora.db`
    - Minimal metadata collection
    - No sensitive data in logs
 
@@ -281,6 +300,11 @@ clean               # Remove artifacts
 - Check credential type and redaction
 - Requires: `gh auth login` completed
 
+### Memory Store Test
+- Full lifecycle: init, insert, query, backup
+- FTS sync triggers
+- Prune and error handling
+
 **Run with:**
 ```bash
 make test-integration
@@ -315,6 +339,12 @@ make test-integration
    - Integration tests for auth
    - >80% coverage
 
+7. **Memory Store**
+   - Schema initialization (`kora init`)
+   - Admin commands (`kora db stats|validate|prune|backup|export|path`)
+   - SQLite with FTS5 full-text search
+   - Claude direct access via SQLite MCP
+
 ## How Claude Uses Kora
 
 ### Direct Bash
@@ -342,6 +372,7 @@ kora digest --since 16h --format json
 4. **macOS only** - Single platform simplifies v1
 5. **Keychain** - OS-provided security beats custom encryption
 6. **CLI delegation** - Most secure auth (no cred storage)
+7. **SQLite + MCP** - Kora as schema owner, Claude accesses directly (no wrapper overhead)
 
 ## Success Criteria
 
