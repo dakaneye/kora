@@ -15,6 +15,34 @@ import (
 	"github.com/dakaneye/kora/internal/storage"
 )
 
+// koraBinary holds the path to the pre-built kora binary for tests.
+// Built once in TestMain to avoid go module downloads in temp directories.
+var koraBinary string
+
+func TestMain(m *testing.M) {
+	// Build the binary once before running tests
+	tmpDir, err := os.MkdirTemp("", "kora-test-bin-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create temp dir for binary: %v\n", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	koraBinary = filepath.Join(tmpDir, "kora")
+	cmd := exec.Command("go", "build", "-o", koraBinary, "../../cmd/kora")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to build kora binary: %v\nOutput: %s\n", err, output)
+		os.Exit(1)
+	}
+
+	os.Exit(m.Run())
+}
+
+// koraCmd creates an exec.Command using the pre-built kora binary.
+func koraCmd(args ...string) *exec.Cmd {
+	return exec.Command(koraBinary, args...)
+}
+
 // TestMemoryStore_FullLifecycle tests the complete lifecycle of the memory store:
 // init, insert, stats, validate, backup, export
 func TestMemoryStore_FullLifecycle(t *testing.T) {
@@ -23,7 +51,7 @@ func TestMemoryStore_FullLifecycle(t *testing.T) {
 
 	// Step 1: Initialize database
 	t.Run("Init", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "init", "--path", dbPath)
+		cmd := koraCmd( "init", "--path", dbPath)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("kora init failed: %v\nOutput: %s", err, output)
@@ -97,7 +125,7 @@ func TestMemoryStore_FullLifecycle(t *testing.T) {
 
 	// Step 3: Run db stats
 	t.Run("Stats", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "stats", "--path", dbPath)
+		cmd := koraCmd( "db", "stats", "--path", dbPath)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("kora db stats failed: %v\nOutput: %s", err, output)
@@ -128,7 +156,7 @@ func TestMemoryStore_FullLifecycle(t *testing.T) {
 
 	// Step 4: Run db validate
 	t.Run("Validate", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "validate", "--path", dbPath)
+		cmd := koraCmd( "db", "validate", "--path", dbPath)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("kora db validate failed: %v\nOutput: %s", err, output)
@@ -152,7 +180,7 @@ func TestMemoryStore_FullLifecycle(t *testing.T) {
 		}
 
 		// Set HOME to temp dir so backup goes to expected location
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "backup", "--path", dbPath)
+		cmd := koraCmd( "db", "backup", "--path", dbPath)
 		cmd.Env = append(os.Environ(), fmt.Sprintf("HOME=%s", tempDir))
 		output, err := cmd.CombinedOutput()
 		if err != nil {
@@ -183,7 +211,7 @@ func TestMemoryStore_FullLifecycle(t *testing.T) {
 
 	// Step 6: Export to JSON and verify contents
 	t.Run("ExportJSON", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "export", "--path", dbPath, "--format", "json")
+		cmd := koraCmd( "db", "export", "--path", dbPath, "--format", "json")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("kora db export failed: %v\nOutput: %s", err, output)
@@ -214,7 +242,7 @@ func TestMemoryStore_FullLifecycle(t *testing.T) {
 
 	// Step 7: Export to Markdown and verify contents
 	t.Run("ExportMarkdown", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "export", "--path", dbPath, "--format", "md")
+		cmd := koraCmd( "db", "export", "--path", dbPath, "--format", "md")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("kora db export failed: %v\nOutput: %s", err, output)
@@ -495,7 +523,7 @@ func TestMemoryStore_PruneBehavior(t *testing.T) {
 
 	// Dry run prune
 	t.Run("DryRunPrune", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "prune",
+		cmd := koraCmd( "db", "prune",
 			"--path", dbPath,
 			"--older-than", "1d",
 			"--dry-run")
@@ -515,7 +543,7 @@ func TestMemoryStore_PruneBehavior(t *testing.T) {
 
 	// Actual prune - fresh records won't be pruned (trigger sets updated_at to now)
 	t.Run("ActualPrune", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "prune",
+		cmd := koraCmd( "db", "prune",
 			"--path", dbPath,
 			"--older-than", "1d")
 		output, err := cmd.CombinedOutput()
@@ -554,7 +582,7 @@ func TestMemoryStore_ErrorHandling(t *testing.T) {
 
 	// Test stats on non-existent database
 	t.Run("StatsOnNonExistentDB", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "stats", "--path", nonExistentDB)
+		cmd := koraCmd( "db", "stats", "--path", nonExistentDB)
 		output, err := cmd.CombinedOutput()
 		if err == nil {
 			t.Error("Expected error for non-existent database, got nil")
@@ -568,7 +596,7 @@ func TestMemoryStore_ErrorHandling(t *testing.T) {
 
 	// Test backup on non-existent database
 	t.Run("BackupOnNonExistentDB", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "backup", "--path", nonExistentDB)
+		cmd := koraCmd( "db", "backup", "--path", nonExistentDB)
 		output, err := cmd.CombinedOutput()
 		if err == nil {
 			t.Error("Expected error for non-existent database, got nil")
@@ -598,7 +626,7 @@ func TestMemoryStore_ErrorHandling(t *testing.T) {
 		}
 
 		// Try to backup while locked
-		cmd := exec.Command("go", "run", "../../cmd/kora", "db", "backup", "--path", dbPath)
+		cmd := koraCmd( "db", "backup", "--path", dbPath)
 		output, err := cmd.CombinedOutput()
 
 		// Clean up
@@ -622,7 +650,7 @@ func TestMemoryStore_Reinit(t *testing.T) {
 
 	// First init
 	t.Run("FirstInit", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "init", "--path", dbPath)
+		cmd := koraCmd( "init", "--path", dbPath)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("First init failed: %v\nOutput: %s", err, output)
@@ -631,7 +659,7 @@ func TestMemoryStore_Reinit(t *testing.T) {
 
 	// Second init (should report already initialized)
 	t.Run("SecondInit", func(t *testing.T) {
-		cmd := exec.Command("go", "run", "../../cmd/kora", "init", "--path", dbPath)
+		cmd := koraCmd( "init", "--path", dbPath)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Second init failed: %v\nOutput: %s", err, output)
@@ -661,7 +689,7 @@ func TestMemoryStore_Reinit(t *testing.T) {
 		}
 
 		// Force reinit
-		cmd := exec.Command("go", "run", "../../cmd/kora", "init", "--path", dbPath, "--force")
+		cmd := koraCmd( "init", "--path", dbPath, "--force")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Force reinit failed: %v\nOutput: %s", err, output)
