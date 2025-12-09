@@ -143,52 +143,116 @@ func splitOwnerRepo(nameWithOwner string) (owner, repo string) {
 
 // searchPRs executes a GraphQL PR search and returns search items.
 // The query string should be a GitHub search query (e.g., "review-requested:@me is:open").
+// Handles pagination automatically to fetch all results up to limit.
 func searchPRs(ctx context.Context, client *GraphQLClient, query string, limit int) ([]searchItem, error) {
 	if limit <= 0 {
 		limit = 100 // Default limit
 	}
 
-	// Variable named "searchQuery" to avoid conflict with gh's reserved "query" field
-	variables := map[string]any{
-		"searchQuery": query,
-		"first":       limit,
+	var allItems []searchItem
+	var cursor string
+
+	// Pagination loop - fetch pages until we have enough results or no more pages
+	for {
+		// Check context cancellation between pages
+		select {
+		case <-ctx.Done():
+			return allItems, ctx.Err()
+		default:
+		}
+
+		// Calculate page size: min(remaining, 100) - GitHub's max is 100 per page
+		pageSize := limit - len(allItems)
+		if pageSize > 100 {
+			pageSize = 100
+		}
+
+		// Variable named "searchQuery" to avoid conflict with gh's reserved "query" field
+		variables := map[string]any{
+			"searchQuery": query,
+			"first":       pageSize,
+		}
+		if cursor != "" {
+			variables["after"] = cursor
+		}
+
+		data, err := client.Execute(ctx, SearchPRsQuery, variables)
+		if err != nil {
+			return nil, fmt.Errorf("search PRs: %w", err)
+		}
+
+		resp, err := parseSearchPRsResponse(data)
+		if err != nil {
+			return nil, err
+		}
+
+		allItems = append(allItems, resp.toSearchItems()...)
+
+		// Stop if we've reached our limit or no more pages
+		if len(allItems) >= limit || !resp.Search.PageInfo.HasNextPage {
+			break
+		}
+
+		cursor = resp.Search.PageInfo.EndCursor
 	}
 
-	data, err := client.Execute(ctx, SearchPRsQuery, variables)
-	if err != nil {
-		return nil, fmt.Errorf("search PRs: %w", err)
-	}
-
-	resp, err := parseSearchPRsResponse(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return resp.toSearchItems(), nil
+	return allItems, nil
 }
 
 // searchIssues executes a GraphQL issue search and returns search items.
 // The query string should be a GitHub search query (e.g., "mentions:@me type:issue").
+// Handles pagination automatically to fetch all results up to limit.
 func searchIssues(ctx context.Context, client *GraphQLClient, query string, limit int) ([]searchItem, error) {
 	if limit <= 0 {
 		limit = 100 // Default limit
 	}
 
-	// Variable named "searchQuery" to avoid conflict with gh's reserved "query" field
-	variables := map[string]any{
-		"searchQuery": query,
-		"first":       limit,
+	var allItems []searchItem
+	var cursor string
+
+	// Pagination loop - fetch pages until we have enough results or no more pages
+	for {
+		// Check context cancellation between pages
+		select {
+		case <-ctx.Done():
+			return allItems, ctx.Err()
+		default:
+		}
+
+		// Calculate page size: min(remaining, 100) - GitHub's max is 100 per page
+		pageSize := limit - len(allItems)
+		if pageSize > 100 {
+			pageSize = 100
+		}
+
+		// Variable named "searchQuery" to avoid conflict with gh's reserved "query" field
+		variables := map[string]any{
+			"searchQuery": query,
+			"first":       pageSize,
+		}
+		if cursor != "" {
+			variables["after"] = cursor
+		}
+
+		data, err := client.Execute(ctx, SearchIssuesQuery, variables)
+		if err != nil {
+			return nil, fmt.Errorf("search issues: %w", err)
+		}
+
+		resp, err := parseSearchIssuesResponse(data)
+		if err != nil {
+			return nil, err
+		}
+
+		allItems = append(allItems, resp.toSearchItems()...)
+
+		// Stop if we've reached our limit or no more pages
+		if len(allItems) >= limit || !resp.Search.PageInfo.HasNextPage {
+			break
+		}
+
+		cursor = resp.Search.PageInfo.EndCursor
 	}
 
-	data, err := client.Execute(ctx, SearchIssuesQuery, variables)
-	if err != nil {
-		return nil, fmt.Errorf("search issues: %w", err)
-	}
-
-	resp, err := parseSearchIssuesResponse(data)
-	if err != nil {
-		return nil, err
-	}
-
-	return resp.toSearchItems(), nil
+	return allItems, nil
 }

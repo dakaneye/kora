@@ -64,6 +64,8 @@ const (
 	EventTypeIssueMention EventType = "issue_mention"
 	// EventTypeIssueAssigned indicates assignment to an issue.
 	EventTypeIssueAssigned EventType = "issue_assigned"
+	// EventTypeIssueCommentAuthor indicates user commented on an issue.
+	EventTypeIssueCommentAuthor EventType = "issue_comment_author"
 )
 
 // EventType constants for Google Calendar events.
@@ -103,9 +105,10 @@ var validEventTypes = map[EventType]struct{}{
 	EventTypePRAuthor:         {},
 	EventTypePRCodeowner:      {},
 	EventTypePRClosed:         {},
-	EventTypePRCommentMention: {},
-	EventTypeIssueMention:     {},
-	EventTypeIssueAssigned:    {},
+	EventTypePRCommentMention:   {},
+	EventTypeIssueMention:       {},
+	EventTypeIssueAssigned:      {},
+	EventTypeIssueCommentAuthor: {},
 	// Google Calendar event types
 	EventTypeCalendarUpcoming:         {},
 	EventTypeCalendarNeedsRSVP:        {},

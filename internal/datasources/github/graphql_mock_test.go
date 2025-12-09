@@ -43,8 +43,9 @@ func setupMockForAllSearches(cred *mockGitHubDelegatedCredential, t *testing.T) 
 	cred.setGraphQLResponse("graphql:search:pr-mention", emptySearchResp)
 	cred.setGraphQLResponse("graphql:search:issue-mention", issueSearchResp)
 	cred.setGraphQLResponse("graphql:search:issue-assigned", emptySearchResp)
-	cred.setGraphQLResponse("graphql:search:pr-author", emptySearchResp)   // Authored PRs
-	cred.setGraphQLResponse("graphql:search:pr-involves", emptySearchResp) // Comment mentions
+	cred.setGraphQLResponse("graphql:search:pr-author", emptySearchResp)      // Authored PRs
+	cred.setGraphQLResponse("graphql:search:pr-involves", emptySearchResp)    // Comment mentions
+	cred.setGraphQLResponse("graphql:search:issue-commenter", emptySearchResp) // Issue comment author
 
 	// Configure context responses
 	cred.setGraphQLResponse("graphql:pr:context", prContextResp)
@@ -62,14 +63,15 @@ func setupMockWithPartialFailure(cred *mockGitHubDelegatedCredential, t *testing
 
 	// Map of all responses
 	responses := map[string][]byte{
-		"graphql:search:pr-review":      prSearchResp,
-		"graphql:search:pr-mention":     emptySearchResp,
-		"graphql:search:issue-mention":  issueSearchResp,
-		"graphql:search:issue-assigned": emptySearchResp,
-		"graphql:search:pr-author":      emptySearchResp,
-		"graphql:search:pr-involves":    emptySearchResp, // Comment mentions
-		"graphql:pr:context":            prContextResp,
-		"graphql:issue:context":         issueContextResp,
+		"graphql:search:pr-review":       prSearchResp,
+		"graphql:search:pr-mention":      emptySearchResp,
+		"graphql:search:issue-mention":   issueSearchResp,
+		"graphql:search:issue-assigned":  emptySearchResp,
+		"graphql:search:pr-author":       emptySearchResp,
+		"graphql:search:pr-involves":     emptySearchResp, // Comment mentions
+		"graphql:search:issue-commenter": emptySearchResp, // Issue comment author
+		"graphql:pr:context":             prContextResp,
+		"graphql:issue:context":          issueContextResp,
 	}
 
 	// Create a set of keys to fail

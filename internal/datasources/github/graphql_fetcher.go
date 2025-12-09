@@ -817,3 +817,85 @@ func (d *DataSource) fetchPRCommentMentionsGraphQL(ctx context.Context, client *
 
 	return events, nil
 }
+
+// fetchIssueCommentAuthorGraphQL fetches issues where user has commented using GraphQL.
+// Query: commenter:{username} is:issue updated:>=DATE
+//
+// This method detects issues where the user has participated by commenting.
+// It helps track ongoing conversations the user is involved in.
+//
+// Per EFA 0001:
+//   - EventType: models.EventTypeIssueCommentAuthor
+//   - Priority: models.PriorityMedium (3)
+//   - RequiresAction: false
+//   - user_relationships: ["commenter"]
+//
+// Per EFA 0003: Context must be used for all network operations.
+func (d *DataSource) fetchIssueCommentAuthorGraphQL(ctx context.Context, client *GraphQLClient, cred githubCredential, since time.Time, orgs []string) ([]models.Event, error) {
+	// Get current user login
+	currentUser, err := d.getCurrentUser(ctx, cred)
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	// Build search query for issues where user commented
+	query := fmt.Sprintf("commenter:%s is:issue updated:>=%s", currentUser, since.Format("2006-01-02"))
+
+	if len(orgs) > 0 {
+		query += " " + buildOrgFilter(orgs)
+	}
+
+	// Search for matching issues
+	items, err := searchIssues(ctx, client, query, 100)
+	if err != nil {
+		return nil, fmt.Errorf("search issue comment author: %w", err)
+	}
+
+	// Fetch full context for each issue
+	events := make([]models.Event, 0, len(items))
+	for _, item := range items {
+		// Check context cancellation between items
+		select {
+		case <-ctx.Done():
+			return events, ctx.Err()
+		default:
+		}
+
+		if item.UpdatedAt.Before(since) {
+			continue
+		}
+
+		// Fetch full issue context
+		metadata, err := fetchIssueFullContext(ctx, client, item.Owner, item.Repo, item.Number)
+		if err != nil {
+			// Log but continue with partial data
+			metadata = map[string]any{
+				"repo":               item.Owner + "/" + item.Repo,
+				"number":             item.Number,
+				"state":              "open",
+				"author_login":       item.Author,
+				"user_relationships": []string{"commenter"},
+			}
+		} else {
+			metadata["user_relationships"] = []string{"commenter"}
+		}
+
+		event := models.Event{
+			Type:   models.EventTypeIssueCommentAuthor,
+			Title:  truncateTitle(fmt.Sprintf("You commented on: %s", item.Title)),
+			Source: models.SourceGitHub,
+			URL:    item.URL,
+			Author: models.Person{
+				Name:     item.Author,
+				Username: item.Author,
+			},
+			Timestamp:      item.UpdatedAt,
+			Priority:       models.PriorityMedium, // Per EFA 0001
+			RequiresAction: false,
+			Metadata:       metadata,
+		}
+		events = append(events, event)
+	}
+
+	return events, nil
+}

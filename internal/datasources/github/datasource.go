@@ -287,7 +287,25 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 		return result, ctx.Err()
 	}
 
-	// 8. Watched repo merged PRs (optional awareness)
+	// 8. Issue comment author - GraphQL
+	// Detect issues where the user has commented
+	issueCommentAuthor, err := d.fetchIssueCommentAuthorGraphQL(ctx, gqlClient, ghCred, opts.Since, d.orgs)
+	if err != nil {
+		fetchErrors = append(fetchErrors, fmt.Errorf("issue comment author: %w", err))
+	} else {
+		allEvents = append(allEvents, issueCommentAuthor...)
+		result.Stats.APICallCount++
+	}
+
+	if ctx.Err() != nil {
+		result.Events = allEvents
+		result.Errors = fetchErrors
+		result.Partial = len(allEvents) > 0
+		result.Stats.Duration = time.Since(startTime)
+		return result, ctx.Err()
+	}
+
+	// 9. Watched repo merged PRs (optional awareness)
 	if len(d.watchedRepos) > 0 {
 		watchedMerges, err := d.fetchWatchedRepoMergedPRs(ctx, gqlClient, opts.Since, d.watchedRepos)
 		if err != nil {
@@ -311,7 +329,7 @@ func (d *DataSource) Fetch(ctx context.Context, opts datasources.FetchOptions) (
 	// Also merges user_relationships when same PR appears for multiple reasons
 	allEvents = models.DeduplicateEvents(allEvents)
 
-	// 9. Check CODEOWNERS for PR events (optional)
+	// 10. Check CODEOWNERS for PR events (optional)
 	// Only process if codeownersFetcher is configured
 	if d.codeownersFetcher != nil {
 		currentUser, userErr := d.getCurrentUser(ctx, ghCred)

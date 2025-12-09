@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/dakaneye/kora/internal/auth"
 	ghauth "github.com/dakaneye/kora/internal/auth/github"
@@ -64,6 +65,7 @@ type mockGitHubDelegatedCredential struct {
 	// For GraphQL context: "graphql:pr:owner/repo/123", "graphql:issue:owner/repo/456"
 	responses map[string]mockAPIResponse
 	callCount int
+	mu        sync.RWMutex // protects responses and callCount for concurrent access
 }
 
 type mockAPIResponse struct {
@@ -83,8 +85,11 @@ func newMockGitHubDelegatedCredential() *mockGitHubDelegatedCredential {
 // ExecuteAPI overrides the real implementation to return test data.
 // This allows us to test without calling the actual gh CLI.
 // Supports both REST and GraphQL endpoints.
+// Thread-safe for concurrent access from parallel goroutines.
 func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint string, args ...string) ([]byte, error) {
+	m.mu.Lock()
 	m.callCount++
+	m.mu.Unlock()
 
 	// Handle GraphQL endpoint
 	if endpoint == "graphql" {
@@ -93,7 +98,10 @@ func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint
 
 	// Handle "user" endpoint for current user lookup (used by authored PRs)
 	if endpoint == "user" {
-		if resp, ok := m.responses["rest:user"]; ok {
+		m.mu.RLock()
+		resp, ok := m.responses["rest:user"]
+		m.mu.RUnlock()
+		if ok {
 			if resp.err != nil {
 				return nil, resp.err
 			}
@@ -105,7 +113,10 @@ func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint
 
 	// Handle direct REST endpoint (e.g., "repos/owner/repo/contents/path")
 	// Check for direct endpoint match first
-	if resp, ok := m.responses["rest:"+endpoint]; ok {
+	m.mu.RLock()
+	resp, ok := m.responses["rest:"+endpoint]
+	m.mu.RUnlock()
+	if ok {
 		if resp.err != nil {
 			return nil, resp.err
 		}
@@ -117,6 +128,7 @@ func (m *mockGitHubDelegatedCredential) ExecuteAPI(ctx context.Context, endpoint
 }
 
 // handleGraphQL processes GraphQL API calls.
+// Thread-safe: uses RLock to read from responses map.
 func (m *mockGitHubDelegatedCredential) handleGraphQL(args []string) ([]byte, error) {
 	// Extract query and variables from args
 	// Variables are now passed individually as -f key=value or -F key=value
@@ -164,7 +176,9 @@ func (m *mockGitHubDelegatedCredential) handleGraphQL(args []string) ([]byte, er
 		return nil, fmt.Errorf("mock: unknown graphql query type, queryStr=%q, vars=%v", queryStr[:min(100, len(queryStr))], vars)
 	}
 
+	m.mu.RLock()
 	resp, ok := m.responses[key]
+	m.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("mock: no response configured for graphql key %s", key)
 	}
@@ -175,6 +189,7 @@ func (m *mockGitHubDelegatedCredential) handleGraphQL(args []string) ([]byte, er
 }
 
 // handleREST processes REST API calls (legacy support for old tests).
+// Thread-safe: uses RLock to read from responses map.
 func (m *mockGitHubDelegatedCredential) handleREST(args []string) ([]byte, error) {
 	// Extract query from args to determine which response to return
 	var query string
@@ -202,7 +217,9 @@ func (m *mockGitHubDelegatedCredential) handleREST(args []string) ([]byte, error
 		return nil, fmt.Errorf("mock: no response configured for query %s", query)
 	}
 
+	m.mu.RLock()
 	resp, ok := m.responses[key]
+	m.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("mock: no response configured for key %s", key)
 	}
@@ -216,13 +233,19 @@ func (m *mockGitHubDelegatedCredential) handleREST(args []string) ([]byte, error
 // key should be one of:
 // - "graphql:search:pr-review", "graphql:search:pr-mention", "graphql:search:issue-mention", "graphql:search:issue-assigned"
 // - "graphql:pr:context", "graphql:issue:context"
+// Thread-safe: uses Lock to write to responses map.
 func (m *mockGitHubDelegatedCredential) setGraphQLResponse(key string, data []byte) {
+	m.mu.Lock()
 	m.responses[key] = mockAPIResponse{data: data}
+	m.mu.Unlock()
 }
 
 // setGraphQLError configures the mock to return an error for a GraphQL query type.
+// Thread-safe: uses Lock to write to responses map.
 func (m *mockGitHubDelegatedCredential) setGraphQLError(key string, err error) {
+	m.mu.Lock()
 	m.responses[key] = mockAPIResponse{err: err}
+	m.mu.Unlock()
 }
 
 // contains is a simple substring check helper
@@ -242,6 +265,8 @@ func determineSearchKey(queryVar string) string {
 		return "graphql:search:issue-mention"
 	case contains(queryVar, "assignee"):
 		return "graphql:search:issue-assigned"
+	case contains(queryVar, "commenter:"):
+		return "graphql:search:issue-commenter"
 	case contains(queryVar, "author:"):
 		return "graphql:search:pr-author"
 	case contains(queryVar, "involves:"):

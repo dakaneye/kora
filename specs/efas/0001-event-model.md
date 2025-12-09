@@ -74,8 +74,9 @@ const (
     EventTypePRCommentMention   EventType = "pr_comment_mention"   // User mentioned in a PR comment or review
 
     // GitHub Issue event types
-    EventTypeIssueMention  EventType = "issue_mention"   // Mentioned in an issue
-    EventTypeIssueAssigned EventType = "issue_assigned"  // Assigned to an issue
+    EventTypeIssueMention       EventType = "issue_mention"        // Mentioned in an issue
+    EventTypeIssueAssigned      EventType = "issue_assigned"       // Assigned to an issue
+    EventTypeIssueCommentAuthor EventType = "issue_comment_author" // User commented on an issue
 
     // Slack event types
     EventTypeSlackDM       EventType = "slack_dm"        // Direct message
@@ -105,6 +106,7 @@ var validEventTypes = map[EventType]struct{}{
     EventTypePRCommentMention:         {},
     EventTypeIssueMention:             {},
     EventTypeIssueAssigned:            {},
+    EventTypeIssueCommentAuthor:       {},
     EventTypeSlackDM:                  {},
     EventTypeSlackMention:             {},
     EventTypeCalendarUpcoming:         {},
@@ -491,6 +493,7 @@ Datasources MUST assign priority according to these rules:
 | @mention in issue/PR/channel | 3 (Medium) | *_mention | mentioned | false |
 | PR comment mention | 3 (Medium) | pr_comment_mention | mentioned | false |
 | Issue assigned | 3 (Medium) | issue_assigned | assignee | true |
+| Issue comment author | 3 (Medium) | issue_comment_author | commenter | false |
 | Calendar needs RSVP | 3 (Medium) | calendar_needs_rsvp | - | true |
 | Calendar organizer awaiting RSVPs | 3 (Medium) | calendar_organizer_pending | - | true |
 | Calendar tentative | 3 (Medium) | calendar_tentative | - | false |
@@ -588,6 +591,7 @@ The `user_relationships` metadata field indicates why the user is seeing this ev
 - `"mentioned"` - User was @mentioned in body/comments/reviews
 - `"codeowner"` - User owns changed files per CODEOWNERS
 - `"assignee"` - User is assigned to this issue
+- `"commenter"` - User commented on this issue
 
 **For watched repo PRs** where the user has no direct involvement (not author, reviewer, mentioned, or codeowner), `user_relationships` is an empty array `[]`.
 
@@ -1036,7 +1040,7 @@ const EventTypePRComment EventType = "pr_comment" // NOT in EFA 0001
 ```
 
 **NOTE:** As of this update, the following EventTypes are valid:
-- GitHub: `pr_review`, `pr_mention`, `pr_author`, `pr_codeowner`, `pr_closed`, `pr_comment_mention`, `issue_mention`, `issue_assigned`
+- GitHub: `pr_review`, `pr_mention`, `pr_author`, `pr_codeowner`, `pr_closed`, `pr_comment_mention`, `issue_mention`, `issue_assigned`, `issue_comment_author`
 - Slack: `slack_dm`, `slack_mention`
 - Google Calendar: `calendar_upcoming`, `calendar_needs_rsvp`, `calendar_organizer_pending`, `calendar_tentative`, `calendar_meeting`, `calendar_all_day`
 - Gmail: `email_important`, `email_direct`, `email_cc`

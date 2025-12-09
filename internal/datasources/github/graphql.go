@@ -373,9 +373,10 @@ query IssueContext($owner: String!, $repo: String!, $number: Int!) {
 // SearchPRsQuery searches for PRs matching criteria and returns basic info.
 // Use PRQuery to fetch full context for each PR.
 // Note: Variable is named $searchQuery to avoid conflict with gh's reserved "query" field.
+// Supports pagination via $after cursor.
 const SearchPRsQuery = `
-query SearchPRs($searchQuery: String!, $first: Int!) {
-  search(query: $searchQuery, type: ISSUE, first: $first) {
+query SearchPRs($searchQuery: String!, $first: Int!, $after: String) {
+  search(query: $searchQuery, type: ISSUE, first: $first, after: $after) {
     issueCount
     nodes {
       ... on PullRequest {
@@ -402,9 +403,10 @@ query SearchPRs($searchQuery: String!, $first: Int!) {
 // SearchIssuesQuery searches for issues matching criteria and returns basic info.
 // Use IssueQuery to fetch full context for each issue.
 // Note: Variable is named $searchQuery to avoid conflict with gh's reserved "query" field.
+// Supports pagination via $after cursor.
 const SearchIssuesQuery = `
-query SearchIssues($searchQuery: String!, $first: Int!) {
-  search(query: $searchQuery, type: ISSUE, first: $first) {
+query SearchIssues($searchQuery: String!, $first: Int!, $after: String) {
+  search(query: $searchQuery, type: ISSUE, first: $first, after: $after) {
     issueCount
     nodes {
       ... on Issue {
