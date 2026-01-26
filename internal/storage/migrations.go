@@ -25,8 +25,104 @@ type Migration struct {
 // Each migration upgrades from Version-1 to Version.
 var migrations = []Migration{
 	// Schema version 1 is created by schema.sql, no migration needed.
-	// Future migrations go here, e.g.:
-	// {Version: 2, Name: "add_notes_table", Up: migrateV2},
+	{Version: 2, Name: "add_standups_table", Up: migrateV2AddStandups},
+}
+
+// migrateV2AddStandups adds the standups table for storing daily standup reports.
+func migrateV2AddStandups(ctx context.Context, tx *sql.Tx) error {
+	// Create standups table
+	createTable := `
+CREATE TABLE standups (
+    id TEXT PRIMARY KEY,
+    standup_text TEXT NOT NULL,
+    date TEXT NOT NULL,
+    format TEXT DEFAULT 'markdown',
+    status TEXT DEFAULT 'draft',
+    sources_used TEXT,
+    sent_at TEXT,
+    referenced_accomplishments TEXT,
+    referenced_goals TEXT,
+    referenced_commitments TEXT,
+    tags TEXT,
+    is_deleted INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)`
+	if err := ExecMigrationSQL(ctx, tx, createTable); err != nil {
+		return fmt.Errorf("create standups table: %w", err)
+	}
+
+	// Create indexes
+	indexes := []string{
+		"CREATE INDEX idx_standups_date ON standups(date) WHERE is_deleted = 0",
+		"CREATE INDEX idx_standups_status ON standups(status) WHERE is_deleted = 0",
+		"CREATE INDEX idx_standups_created ON standups(created_at) WHERE is_deleted = 0",
+	}
+	for _, idx := range indexes {
+		if err := ExecMigrationSQL(ctx, tx, idx); err != nil {
+			return fmt.Errorf("create index: %w", err)
+		}
+	}
+
+	// Create updated_at trigger
+	updateTrigger := `
+CREATE TRIGGER standups_update_timestamp
+AFTER UPDATE ON standups
+BEGIN
+    UPDATE standups SET updated_at = datetime('now')
+    WHERE id = NEW.id;
+END`
+	if err := ExecMigrationSQL(ctx, tx, updateTrigger); err != nil {
+		return fmt.Errorf("create update trigger: %w", err)
+	}
+
+	// Create FTS insert trigger
+	ftsInsert := `
+CREATE TRIGGER standups_fts_insert
+AFTER INSERT ON standups
+BEGIN
+    INSERT INTO memory_search(content, title, body, tags)
+    VALUES ('standup', NEW.date, NEW.standup_text, COALESCE(NEW.tags, ''));
+END`
+	if err := ExecMigrationSQL(ctx, tx, ftsInsert); err != nil {
+		return fmt.Errorf("create FTS insert trigger: %w", err)
+	}
+
+	// Create FTS update trigger
+	ftsUpdate := `
+CREATE TRIGGER standups_fts_update
+AFTER UPDATE ON standups
+WHEN NEW.is_deleted = 0
+BEGIN
+    DELETE FROM memory_search WHERE rowid = (
+        SELECT rowid FROM memory_search
+        WHERE content = 'standup' AND title = OLD.date AND body = OLD.standup_text
+        LIMIT 1
+    );
+    INSERT INTO memory_search(content, title, body, tags)
+    VALUES ('standup', NEW.date, NEW.standup_text, COALESCE(NEW.tags, ''));
+END`
+	if err := ExecMigrationSQL(ctx, tx, ftsUpdate); err != nil {
+		return fmt.Errorf("create FTS update trigger: %w", err)
+	}
+
+	// Create FTS delete trigger (soft delete)
+	ftsDelete := `
+CREATE TRIGGER standups_fts_delete
+AFTER UPDATE ON standups
+WHEN NEW.is_deleted = 1 AND OLD.is_deleted = 0
+BEGIN
+    DELETE FROM memory_search WHERE rowid = (
+        SELECT rowid FROM memory_search
+        WHERE content = 'standup' AND title = OLD.date AND body = OLD.standup_text
+        LIMIT 1
+    );
+END`
+	if err := ExecMigrationSQL(ctx, tx, ftsDelete); err != nil {
+		return fmt.Errorf("create FTS delete trigger: %w", err)
+	}
+
+	return nil
 }
 
 // destructivePatterns matches SQL that would delete or alter existing schema.

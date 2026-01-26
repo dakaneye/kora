@@ -24,7 +24,7 @@ var schemaSQL string
 
 // SchemaVersion is the current schema version supported by this code.
 // Increment when adding new migrations.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // Default timeouts for database operations.
 const (

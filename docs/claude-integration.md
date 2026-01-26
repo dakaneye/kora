@@ -17,7 +17,7 @@ This guide explains how to use Kora's memory store with Claude Code for personal
 ├─────────────────────────────────────────────────────────────┤
 │  Agent: kora-memory-manager (delegated DB operations)       │
 ├─────────────────────────────────────────────────────────────┤
-│  MCP: SQLite server → ~/.kora/kora.db                       │
+│  MCP: SQLite server → ~/.kora/data/kora.db                  │
 └─────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -45,7 +45,7 @@ cp ./bin/kora /usr/local/bin/
 
 # Initialize memory store
 kora init
-# Creates ~/.kora/kora.db
+# Creates ~/.kora/data/kora.db
 ```
 
 ### 2. Configure SQLite MCP Server
@@ -57,7 +57,7 @@ Add to `~/.claude/settings.json`:
   "mcpServers": {
     "sqlite": {
       "command": "npx",
-      "args": ["-y", "@anthropic/mcp-server-sqlite", "--db-path", "/Users/samueldacanay/.kora/kora.db"]
+      "args": ["-y", "@anthropic/mcp-server-sqlite", "--db-path", "/Users/samueldacanay/.kora/data/kora.db"]
     }
   }
 }
@@ -65,7 +65,7 @@ Add to `~/.claude/settings.json`:
 
 Or use the Claude command:
 ```
-/mcp add sqlite npx -y @anthropic/mcp-server-sqlite --db-path ~/.kora/kora.db
+/mcp add sqlite npx -y @anthropic/mcp-server-sqlite --db-path ~/.kora/data/kora.db
 ```
 
 ### 3. Verify Setup

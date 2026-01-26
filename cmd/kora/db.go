@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dakaneye/kora/internal/storage"
 	"github.com/spf13/cobra"
 	_ "modernc.org/sqlite"
 )
@@ -28,7 +29,7 @@ var (
 )
 
 // tables is the list of core tables in the schema.
-var tables = []string{"goals", "commitments", "accomplishments", "context"}
+var tables = []string{"goals", "commitments", "accomplishments", "context", "standups"}
 
 var dbCmd = &cobra.Command{
 	Use:   "db",
@@ -39,6 +40,7 @@ Available subcommands:
   path      Print database file path
   stats     Show database statistics
   validate  Check database integrity
+  migrate   Run pending database migrations
   prune     Remove soft-deleted records
   backup    Create database backup
   export    Export data to JSON or Markdown
@@ -249,6 +251,92 @@ func runDBValidate(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 	return fmt.Errorf("validation failed")
+}
+
+// ============================================================================
+// db migrate
+// ============================================================================
+
+var dbMigrateCmd = &cobra.Command{
+	Use:   "migrate",
+	Short: "Run pending database migrations",
+	Long: `Apply pending database migrations to upgrade the schema.
+
+Migrations are applied automatically when the database version is behind
+the code version. This command allows you to run migrations explicitly.
+
+Use --dry-run to see what migrations would be applied without making changes.
+
+Example:
+  kora db migrate
+  kora db migrate --dry-run`,
+	RunE: runDBMigrate,
+}
+
+func runDBMigrate(cmd *cobra.Command, _ []string) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+	defer cancel()
+
+	path, err := resolveDBPath()
+	if err != nil {
+		return err
+	}
+
+	if !fileExists(path) {
+		return fmt.Errorf("database not initialized; run 'kora init' first")
+	}
+
+	// Use storage package for migrations
+	store, err := openStoreForMigration(path)
+	if err != nil {
+		return err
+	}
+	defer store.Close() //nolint:errcheck
+
+	// Get pending migrations
+	pending, err := store.PendingMigrations(ctx)
+	if err != nil {
+		return fmt.Errorf("check pending migrations: %w", err)
+	}
+
+	if len(pending) == 0 {
+		fmt.Println("Database is up to date. No migrations needed.")
+		return nil
+	}
+
+	fmt.Printf("Found %d pending migration(s):\n", len(pending))
+	for _, m := range pending {
+		fmt.Printf("  - v%d: %s\n", m.Version, m.Name)
+	}
+
+	if dbDryRun {
+		fmt.Println("\nDry run: no changes made.")
+		return nil
+	}
+
+	fmt.Println("\nApplying migrations...")
+	if err := store.Migrate(ctx); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
+	}
+
+	// Get new version
+	newVersion, err := store.SchemaVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("get new version: %w", err)
+	}
+
+	fmt.Printf("Migrations complete. Database is now at schema version %d.\n", newVersion)
+	return nil
+}
+
+// openStoreForMigration opens a storage.Store without auto-initializing.
+// This is needed because we want to run migrations explicitly.
+func openStoreForMigration(path string) (*storage.Store, error) {
+	store, err := storage.NewStore(path)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	return store, nil
 }
 
 // ============================================================================
@@ -471,6 +559,9 @@ func init() {
 	// Add persistent flag for db path
 	dbCmd.PersistentFlags().StringVar(&dbPath, "path", "", "database path (default: ~/.kora/data/kora.db)")
 
+	// migrate flags
+	dbMigrateCmd.Flags().BoolVar(&dbDryRun, "dry-run", false, "show pending migrations without applying")
+
 	// prune flags
 	dbPruneCmd.Flags().BoolVar(&dbDryRun, "dry-run", false, "show what would be deleted without deleting")
 	dbPruneCmd.Flags().StringVar(&dbOlderThan, "older-than", "", "delete records older than duration (e.g., 30d, 90d, 1y)")
@@ -486,6 +577,7 @@ func init() {
 	dbCmd.AddCommand(dbPathCmd)
 	dbCmd.AddCommand(dbStatsCmd)
 	dbCmd.AddCommand(dbValidateCmd)
+	dbCmd.AddCommand(dbMigrateCmd)
 	dbCmd.AddCommand(dbPruneCmd)
 	dbCmd.AddCommand(dbBackupCmd)
 	dbCmd.AddCommand(dbExportCmd)
@@ -621,6 +713,10 @@ func checkRequiredFields(ctx context.Context, db *sql.DB) ([]string, error) {
 		{"context", "body"},
 		{"context", "created_at"},
 		{"context", "updated_at"},
+		{"standups", "standup_text"},
+		{"standups", "date"},
+		{"standups", "created_at"},
+		{"standups", "updated_at"},
 	}
 
 	for _, check := range checks {
@@ -666,6 +762,7 @@ func checkFTSConsistency(ctx context.Context, db *sql.DB) ([]string, error) {
 		"commitment":     "commitments",
 		"accomplishment": "accomplishments",
 		"context":        "context",
+		"standup":        "standups",
 	}
 
 	// Check each type
@@ -756,12 +853,13 @@ func copyFile(src, dst string) error {
 
 // exportData holds all exportable data.
 type exportData struct {
-	ExportedAt       string               `json:"exported_at"`
-	SchemaVersion    int                  `json:"schema_version"`
-	Goals            []map[string]any     `json:"goals"`
-	Commitments      []map[string]any     `json:"commitments"`
-	Accomplishments  []map[string]any     `json:"accomplishments"`
-	Context          []map[string]any     `json:"context"`
+	ExportedAt      string           `json:"exported_at"`
+	SchemaVersion   int              `json:"schema_version"`
+	Goals           []map[string]any `json:"goals"`
+	Commitments     []map[string]any `json:"commitments"`
+	Accomplishments []map[string]any `json:"accomplishments"`
+	Context         []map[string]any `json:"context"`
+	Standups        []map[string]any `json:"standups,omitempty"`
 }
 
 func exportJSON(ctx context.Context, db *sql.DB, w io.Writer) error {
@@ -794,6 +892,11 @@ func exportJSON(ctx context.Context, db *sql.DB, w io.Writer) error {
 	data.Context, err = exportTable(ctx, db, "context")
 	if err != nil {
 		return fmt.Errorf("export context: %w", err)
+	}
+
+	data.Standups, err = exportTable(ctx, db, "standups")
+	if err != nil {
+		return fmt.Errorf("export standups: %w", err)
 	}
 
 	enc := json.NewEncoder(w)
@@ -873,6 +976,12 @@ func exportMarkdown(ctx context.Context, db *sql.DB, w io.Writer) error {
 	// Context
 	fmt.Fprintf(w, "## Context\n\n")
 	if err := exportTableMarkdown(ctx, db, w, "context", []string{"entity_type", "entity_id", "title", "body", "urgency", "tags"}); err != nil {
+		return err
+	}
+
+	// Standups
+	fmt.Fprintf(w, "## Standups\n\n")
+	if err := exportTableMarkdown(ctx, db, w, "standups", []string{"date", "standup_text", "format", "status", "sent_at", "tags"}); err != nil {
 		return err
 	}
 
@@ -965,6 +1074,9 @@ type importStats struct {
 	ContextInserted         int
 	ContextUpdated          int
 	ContextSkipped          int
+	StandupsInserted        int
+	StandupsUpdated         int
+	StandupsSkipped         int
 }
 
 // tableStats returns inserted/updated/skipped for a table (for backward compat reporting).
@@ -978,6 +1090,8 @@ func (s *importStats) tableInserted(table string) int {
 		return s.AccomplishmentsInserted
 	case "context":
 		return s.ContextInserted
+	case "standups":
+		return s.StandupsInserted
 	}
 	return 0
 }
@@ -992,6 +1106,8 @@ func (s *importStats) tableUpdated(table string) int {
 		return s.AccomplishmentsUpdated
 	case "context":
 		return s.ContextUpdated
+	case "standups":
+		return s.StandupsUpdated
 	}
 	return 0
 }
@@ -1006,27 +1122,33 @@ func (s *importStats) tableSkipped(table string) int {
 		return s.AccomplishmentsSkipped
 	case "context":
 		return s.ContextSkipped
+	case "standups":
+		return s.StandupsSkipped
 	}
 	return 0
 }
 
 func (s *importStats) totalInserted() int {
-	return s.GoalsInserted + s.CommitmentsInserted + s.AccomplishmentsInserted + s.ContextInserted
+	return s.GoalsInserted + s.CommitmentsInserted + s.AccomplishmentsInserted + s.ContextInserted + s.StandupsInserted
 }
 
 func (s *importStats) totalUpdated() int {
-	return s.GoalsUpdated + s.CommitmentsUpdated + s.AccomplishmentsUpdated + s.ContextUpdated
+	return s.GoalsUpdated + s.CommitmentsUpdated + s.AccomplishmentsUpdated + s.ContextUpdated + s.StandupsUpdated
 }
 
 func (s *importStats) totalSkipped() int {
-	return s.GoalsSkipped + s.CommitmentsSkipped + s.AccomplishmentsSkipped + s.ContextSkipped
+	return s.GoalsSkipped + s.CommitmentsSkipped + s.AccomplishmentsSkipped + s.ContextSkipped + s.StandupsSkipped
 }
 
 // validStatuses defines valid status values per table.
 var validStatuses = map[string][]string{
 	"goals":       {"active", "completed", "on_hold"},
 	"commitments": {"active", "in_progress", "completed"},
+	"standups":    {"draft", "sent"},
 }
+
+// validFormats defines valid format values for standups table.
+var validFormats = []string{"terminal", "markdown", "slack"}
 
 // validEntityTypes defines valid entity_type values for context table.
 var validEntityTypes = []string{"person", "project", "repo", "team", "general"}
@@ -1121,6 +1243,7 @@ func runDBImport(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Commitments: %d valid\n", len(importData.Commitments))
 		fmt.Printf("  Accomplishments: %d valid\n", len(importData.Accomplishments))
 		fmt.Printf("  Context: %d valid\n", len(importData.Context))
+		fmt.Printf("  Standups: %d valid\n", len(importData.Standups))
 		fmt.Println("\nDry run complete. No records imported.")
 		fmt.Println("Run without --dry-run to import.")
 		return nil
@@ -1147,6 +1270,9 @@ func runDBImport(cmd *cobra.Command, args []string) error {
 		if err := upsertContext(ctx, tx, importData.Context, stats); err != nil {
 			return fmt.Errorf("upsert context: %w", err)
 		}
+		if err := upsertStandups(ctx, tx, importData.Standups, stats); err != nil {
+			return fmt.Errorf("upsert standups: %w", err)
+		}
 	} else {
 		// Strict mode: insert only
 		inserted, err := importGoals(ctx, tx, importData.Goals)
@@ -1172,6 +1298,12 @@ func runDBImport(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("import context: %w", err)
 		}
 		stats.ContextInserted = inserted
+
+		inserted, err = importStandups(ctx, tx, importData.Standups)
+		if err != nil {
+			return fmt.Errorf("import standups: %w", err)
+		}
+		stats.StandupsInserted = inserted
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1190,6 +1322,8 @@ func runDBImport(cmd *cobra.Command, args []string) error {
 			stats.AccomplishmentsInserted, stats.AccomplishmentsUpdated, stats.AccomplishmentsSkipped)
 		fmt.Printf("  Context: %d inserted, %d updated, %d skipped\n",
 			stats.ContextInserted, stats.ContextUpdated, stats.ContextSkipped)
+		fmt.Printf("  Standups: %d inserted, %d updated, %d skipped\n",
+			stats.StandupsInserted, stats.StandupsUpdated, stats.StandupsSkipped)
 
 		fmt.Printf("\nMerge complete. %d inserted, %d updated, %d skipped.\n",
 			stats.totalInserted(), stats.totalUpdated(), stats.totalSkipped())
@@ -1199,6 +1333,7 @@ func runDBImport(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Commitments: %d imported\n", stats.CommitmentsInserted)
 		fmt.Printf("  Accomplishments: %d imported\n", stats.AccomplishmentsInserted)
 		fmt.Printf("  Context: %d imported\n", stats.ContextInserted)
+		fmt.Printf("  Standups: %d imported\n", stats.StandupsInserted)
 
 		fmt.Printf("\nImport complete. %d records added.\n", stats.totalInserted())
 	}
@@ -1214,6 +1349,7 @@ func validateImportData(data *exportData, stats *importStats) error {
 	seenIDs["commitments"] = make(map[string]bool)
 	seenIDs["accomplishments"] = make(map[string]bool)
 	seenIDs["context"] = make(map[string]bool)
+	seenIDs["standups"] = make(map[string]bool)
 
 	// Validate goals
 	for i, goal := range data.Goals {
@@ -1237,6 +1373,12 @@ func validateImportData(data *exportData, stats *importStats) error {
 	for i, ctx := range data.Context {
 		prefix := fmt.Sprintf("context[%d]", i)
 		validateContextRecord(ctx, prefix, seenIDs["context"], stats)
+	}
+
+	// Validate standups
+	for i, standup := range data.Standups {
+		prefix := fmt.Sprintf("standups[%d]", i)
+		validateStandupRecord(standup, prefix, seenIDs["standups"], stats)
 	}
 
 	return nil
@@ -1380,6 +1522,77 @@ func validateContextRecord(record map[string]any, prefix string, seenIDs map[str
 
 	// Validate tags JSON
 	validateTagsJSON(record, "tags", prefix, stats)
+}
+
+// validateStandupRecord validates a single standup record.
+func validateStandupRecord(record map[string]any, prefix string, seenIDs map[string]bool, stats *importStats) {
+	// Required fields
+	id := validateRequiredString(record, "id", prefix, stats)
+	validateRequiredString(record, "standup_text", prefix, stats)
+	validateRequiredString(record, "date", prefix, stats)
+	validateRequiredString(record, "created_at", prefix, stats)
+	validateRequiredString(record, "updated_at", prefix, stats)
+
+	// Duplicate ID check within file
+	if id != "" {
+		if seenIDs[id] {
+			stats.Errors = append(stats.Errors, fmt.Sprintf("standups: duplicate ID %q", id))
+		}
+		seenIDs[id] = true
+	}
+
+	// Validate status enum (optional, defaults to "draft")
+	if status, ok := record["status"].(string); ok && status != "" {
+		if !contains(validStatuses["standups"], status) {
+			stats.Errors = append(stats.Errors, fmt.Sprintf("%s.status: must be one of %v, got %q", prefix, validStatuses["standups"], status))
+		}
+	}
+
+	// Validate format enum (optional, defaults to "markdown")
+	if format, ok := record["format"].(string); ok && format != "" {
+		if !contains(validFormats, format) {
+			stats.Errors = append(stats.Errors, fmt.Sprintf("%s.format: must be one of %v, got %q", prefix, validFormats, format))
+		}
+	}
+
+	// Validate date format (YYYY-MM-DD)
+	if date, ok := record["date"].(string); ok && date != "" {
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			stats.Errors = append(stats.Errors, fmt.Sprintf("%s.date: must be YYYY-MM-DD format, got %q", prefix, date))
+		}
+	}
+
+	// Validate timestamps
+	validateTimestamp(record, "created_at", prefix, stats)
+	validateTimestamp(record, "updated_at", prefix, stats)
+	validateOptionalTimestamp(record, "sent_at", prefix, stats)
+
+	// Validate tags JSON
+	validateTagsJSON(record, "tags", prefix, stats)
+
+	// Validate JSON array fields
+	validateJSONArray(record, "sources_used", prefix, stats)
+	validateJSONArray(record, "referenced_accomplishments", prefix, stats)
+	validateJSONArray(record, "referenced_goals", prefix, stats)
+	validateJSONArray(record, "referenced_commitments", prefix, stats)
+}
+
+// validateJSONArray checks that a field contains valid JSON (object or array).
+func validateJSONArray(record map[string]any, field, prefix string, stats *importStats) {
+	val, ok := record[field]
+	if !ok || val == nil {
+		return
+	}
+
+	str, ok := val.(string)
+	if !ok || str == "" {
+		return
+	}
+
+	var js any
+	if err := json.Unmarshal([]byte(str), &js); err != nil {
+		stats.Errors = append(stats.Errors, fmt.Sprintf("%s.%s: invalid JSON: %v", prefix, field, err))
+	}
 }
 
 // validateRequiredString checks that a required string field exists and is non-empty.
@@ -1572,6 +1785,21 @@ func checkDuplicateIDs(ctx context.Context, db *sql.DB, data *exportData, stats 
 		}
 	}
 
+	// Check standups
+	for i, standup := range data.Standups {
+		id, ok := standup["id"].(string)
+		if !ok || id == "" {
+			continue
+		}
+		exists, err := idExists(ctx, db, "standups", id)
+		if err != nil {
+			return fmt.Errorf("check standups[%d].id: %w", i, err)
+		}
+		if exists {
+			stats.Errors = append(stats.Errors, fmt.Sprintf("standups[%d].id: %q already exists in database", i, id))
+		}
+	}
+
 	return nil
 }
 
@@ -1579,7 +1807,7 @@ func checkDuplicateIDs(ctx context.Context, db *sql.DB, data *exportData, stats 
 // Note: table parameter comes from controlled internal list, not user input.
 func idExists(ctx context.Context, db *sql.DB, table, id string) (bool, error) {
 	var count int
-	// #nosec G201 -- table name is from controlled internal list (goals, commitments, accomplishments, context)
+	// #nosec G201 -- table name is from controlled internal list (goals, commitments, accomplishments, context, standups)
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE id = ?", table)
 	if err := db.QueryRowContext(ctx, query, id).Scan(&count); err != nil {
 		return false, err
@@ -2167,6 +2395,141 @@ func upsertContext(ctx context.Context, tx *sql.Tx, contextRecords []map[string]
 		} else {
 			// SKIP: existing is same or newer
 			stats.ContextSkipped++
+		}
+	}
+
+	return nil
+}
+
+// importStandups inserts standup records into the database.
+func importStandups(ctx context.Context, tx *sql.Tx, standups []map[string]any) (int, error) {
+	if len(standups) == 0 {
+		return 0, nil
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO standups (id, standup_text, date, format, status, sources_used, sent_at,
+			referenced_accomplishments, referenced_goals, referenced_commitments, tags, is_deleted, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("prepare statement: %w", err)
+	}
+	defer stmt.Close() //nolint:errcheck // Best effort cleanup
+
+	count := 0
+	for i, standup := range standups {
+		_, err := stmt.ExecContext(ctx,
+			getString(standup, "id"),
+			getString(standup, "standup_text"),
+			getString(standup, "date"),
+			getStringOrDefault(standup, "format", "markdown"),
+			getStringOrDefault(standup, "status", "draft"),
+			getStringPtr(standup, "sources_used"),
+			getStringPtr(standup, "sent_at"),
+			getStringPtr(standup, "referenced_accomplishments"),
+			getStringPtr(standup, "referenced_goals"),
+			getStringPtr(standup, "referenced_commitments"),
+			getStringPtr(standup, "tags"),
+			getIntOrDefault(standup, "is_deleted", 0),
+			getString(standup, "created_at"),
+			getString(standup, "updated_at"),
+		)
+		if err != nil {
+			return count, fmt.Errorf("insert standups[%d]: %w", i, err)
+		}
+		count++
+	}
+
+	return count, nil
+}
+
+// upsertStandups performs insert/update/skip logic for standups in merge mode.
+func upsertStandups(ctx context.Context, tx *sql.Tx, standups []map[string]any, stats *importStats) error {
+	if len(standups) == 0 {
+		return nil
+	}
+
+	insertStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO standups (id, standup_text, date, format, status, sources_used, sent_at,
+			referenced_accomplishments, referenced_goals, referenced_commitments, tags, is_deleted, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare insert statement: %w", err)
+	}
+	defer insertStmt.Close() //nolint:errcheck
+
+	updateStmt, err := tx.PrepareContext(ctx, `
+		UPDATE standups SET standup_text=?, date=?, format=?, status=?, sources_used=?, sent_at=?,
+			referenced_accomplishments=?, referenced_goals=?, referenced_commitments=?, tags=?, is_deleted=?, created_at=?, updated_at=?
+		WHERE id=?
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare update statement: %w", err)
+	}
+	defer updateStmt.Close() //nolint:errcheck
+
+	for i, standup := range standups {
+		id := getString(standup, "id")
+		importUpdatedAtStr := getString(standup, "updated_at")
+		importUpdatedAt, err := parseTimestamp(importUpdatedAtStr)
+		if err != nil {
+			return fmt.Errorf("standups[%d]: parse updated_at: %w", i, err)
+		}
+
+		existingUpdatedAt, err := getExistingUpdatedAt(ctx, tx, "standups", id)
+		if err != nil {
+			return fmt.Errorf("standups[%d]: check existing: %w", i, err)
+		}
+
+		if existingUpdatedAt == nil {
+			// INSERT: record doesn't exist
+			_, err := insertStmt.ExecContext(ctx,
+				id,
+				getString(standup, "standup_text"),
+				getString(standup, "date"),
+				getStringOrDefault(standup, "format", "markdown"),
+				getStringOrDefault(standup, "status", "draft"),
+				getStringPtr(standup, "sources_used"),
+				getStringPtr(standup, "sent_at"),
+				getStringPtr(standup, "referenced_accomplishments"),
+				getStringPtr(standup, "referenced_goals"),
+				getStringPtr(standup, "referenced_commitments"),
+				getStringPtr(standup, "tags"),
+				getIntOrDefault(standup, "is_deleted", 0),
+				getString(standup, "created_at"),
+				importUpdatedAtStr,
+			)
+			if err != nil {
+				return fmt.Errorf("insert standups[%d]: %w", i, err)
+			}
+			stats.StandupsInserted++
+		} else if importUpdatedAt.After(*existingUpdatedAt) {
+			// UPDATE: import is newer
+			_, err := updateStmt.ExecContext(ctx,
+				getString(standup, "standup_text"),
+				getString(standup, "date"),
+				getStringOrDefault(standup, "format", "markdown"),
+				getStringOrDefault(standup, "status", "draft"),
+				getStringPtr(standup, "sources_used"),
+				getStringPtr(standup, "sent_at"),
+				getStringPtr(standup, "referenced_accomplishments"),
+				getStringPtr(standup, "referenced_goals"),
+				getStringPtr(standup, "referenced_commitments"),
+				getStringPtr(standup, "tags"),
+				getIntOrDefault(standup, "is_deleted", 0),
+				getString(standup, "created_at"),
+				importUpdatedAtStr,
+				id,
+			)
+			if err != nil {
+				return fmt.Errorf("update standups[%d]: %w", i, err)
+			}
+			stats.StandupsUpdated++
+		} else {
+			// SKIP: existing is same or newer
+			stats.StandupsSkipped++
 		}
 	}
 

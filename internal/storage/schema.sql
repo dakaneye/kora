@@ -11,7 +11,7 @@ CREATE TABLE _meta (
     value TEXT NOT NULL
 );
 
-INSERT INTO _meta (key, value) VALUES ('schema_version', '1');
+INSERT INTO _meta (key, value) VALUES ('schema_version', '2');
 
 
 -- ============================================================================
@@ -87,6 +87,29 @@ CREATE TABLE context (
 
 CREATE INDEX idx_context_entity ON context(entity_type, entity_id) WHERE is_deleted = 0;
 CREATE INDEX idx_context_urgency ON context(urgency) WHERE is_deleted = 0;
+
+
+-- Standups: Daily standup reports generated and saved
+CREATE TABLE standups (
+    id TEXT PRIMARY KEY,
+    standup_text TEXT NOT NULL,        -- Full standup content
+    date TEXT NOT NULL,                 -- Date standup covers (YYYY-MM-DD)
+    format TEXT DEFAULT 'markdown',     -- "terminal", "markdown", "slack"
+    status TEXT DEFAULT 'draft',        -- "draft", "sent"
+    sources_used TEXT,                  -- JSON: {"kora_digest": true, "memory": true}
+    sent_at TEXT,                       -- RFC3339 when marked as sent
+    referenced_accomplishments TEXT,    -- JSON array of accomplishment IDs
+    referenced_goals TEXT,              -- JSON array of goal IDs
+    referenced_commitments TEXT,        -- JSON array of commitment IDs
+    tags TEXT,                          -- JSON array
+    is_deleted INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_standups_date ON standups(date) WHERE is_deleted = 0;
+CREATE INDEX idx_standups_status ON standups(status) WHERE is_deleted = 0;
+CREATE INDEX idx_standups_created ON standups(created_at) WHERE is_deleted = 0;
 
 
 -- ============================================================================
@@ -279,6 +302,49 @@ BEGIN
     DELETE FROM memory_search WHERE rowid = (
         SELECT rowid FROM memory_search
         WHERE content = 'context' AND title = OLD.title AND body = OLD.body
+        LIMIT 1
+    );
+END;
+
+
+-- Update standups.updated_at when row is modified
+CREATE TRIGGER standups_update_timestamp
+AFTER UPDATE ON standups
+BEGIN
+    UPDATE standups SET updated_at = datetime('now')
+    WHERE id = NEW.id;
+END;
+
+-- Sync standups to full-text search on INSERT
+CREATE TRIGGER standups_fts_insert
+AFTER INSERT ON standups
+BEGIN
+    INSERT INTO memory_search(content, title, body, tags)
+    VALUES ('standup', NEW.date, NEW.standup_text, COALESCE(NEW.tags, ''));
+END;
+
+-- Sync standups to full-text search on UPDATE (only when not being soft-deleted)
+CREATE TRIGGER standups_fts_update
+AFTER UPDATE ON standups
+WHEN NEW.is_deleted = 0
+BEGIN
+    DELETE FROM memory_search WHERE rowid = (
+        SELECT rowid FROM memory_search
+        WHERE content = 'standup' AND title = OLD.date AND body = OLD.standup_text
+        LIMIT 1
+    );
+    INSERT INTO memory_search(content, title, body, tags)
+    VALUES ('standup', NEW.date, NEW.standup_text, COALESCE(NEW.tags, ''));
+END;
+
+-- Sync standups to full-text search on DELETE (soft delete)
+CREATE TRIGGER standups_fts_delete
+AFTER UPDATE ON standups
+WHEN NEW.is_deleted = 1 AND OLD.is_deleted = 0
+BEGIN
+    DELETE FROM memory_search WHERE rowid = (
+        SELECT rowid FROM memory_search
+        WHERE content = 'standup' AND title = OLD.date AND body = OLD.standup_text
         LIMIT 1
     );
 END;

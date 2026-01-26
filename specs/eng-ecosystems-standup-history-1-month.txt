@@ -1,0 +1,1415 @@
+Friday:
+Close gap in reporting tooling to report on RocketLab build run
+Partially reported, continued to iterate on tooling
+Improve customer analysis from merged PR (see: https://github.com/chainguard-dev/ecosystems-rebuilder.js/pull/312)
+Nearly got there last night, but had to call it before it got too late
+Iterate on resolve improvements. Aim to close 1 of 2 open PRs
+Did not get there due to opportunities worth pursuing in PR above
+Today:
+Finish improvements to build coverage, analysis, & reporting tooling
+Use improvements to analysis tooling to:
+fully report on RocketLab coverage
+categorize resolve failures (currently make up 50% of all failures)
+Help @dakaneye ramp-up after returning from paternity leave
+Upcoming
+Use failure analysis to inform improvements to resolve
+Merge open PRs with incremental improvements
+Explore how well third-party web-available sources perform
+Enumerate npm specific GAR replacement requirements in Technical Design Doc
+(edited)
+
+
+
+
+
+
+
+
+Arkadiusz Czajkowski
+  10:49 AM
+Today:
+- worked on identifying problem with AWS java-runtime-interface issue
+- learn about backfilled feeder  changes that Benedikt did and where he planed to go forward.
+- creating a localenv docker-compose
+
+
+6 replies
+Last reply 27 days agoView thread
+
+
+Wesley Wiedenmeier
+  10:56 AM
+Previous:
+Got to 65 backports in prod
+Landed work on building original wheel via conventional code instead of AI
+Implemented copying build config via conventional code instead of AI
+Started initial thinking on golang CVE remediation, had some discussions in meetings and on initial planning docs, good ideas so far
+Today:
+For the time being, continue work on moving things from AI to conventional code
+Will get PR ready to review to copy build config using conventional code
+May spend time this afternoon on starting the backport metadata file with conventional code
+Triage + shipped a remediation for new prospect alara
+Going to work on documentation for the current remediation process and try to get an initial wiki page up on the overall process and artifacts, and then work on documenting how to actually run the process
+
+
+Sergio Schvezov
+:desert_island:  4:48 AM
+Monday:
+latest protobuf working as described on https://chainguard-dev.slack.com/archives/C0962EGMS3F/p1762865088858889
+Looking into https://linear.app/chainguard/issue/ECO-9/rebuilder-uses-tag-references-in-provenancesbom-commit-ids
+issue seems to be in how tags are derefed, as they only consider lightweight tags, so when deref-ing annotated tags we get the commit for the tag and not what it points to as our source-ref
+
+
+
+Sergio Schvezov
+protobuf is finally building in prod, there were two main issues:
+the venv created in script builder, and the venv exposed to build to support the wheel builder were getting in the way
+not related to the build, but to upb, the existing previous builds were not passing --//python:limited_api=True (showing the issue with existing published 5.29.3 as seen in the second screenshot)
+2 files
+ 
+
+Download all
+image.png
+image.png
+Posted in commit-to-libs | Nov 11th | View message
+Linear
+
+Issue
+Rebuilder uses tag references in provenance/SBOM commit IDs
+Issue ECO-9 in Linear
+Nov 11
+Provenance and SBOMs currently store commit IDs that reference tags rather than actual commits. Update to point at commit SHAs.
+Status
+Todo
+Assignee
+@sergio.schvezov
+
+
+
+
+Hector Fernandez
+  1:19 AM
+Monday:
+Added some taints to our control-plane pods
+Moved the BQ query code to production
+Reviewed doc about cve remediation for go
+Tuesday:
+Worked on the redis/metadata-cache service
+Dentist
+Continued moving the BQ query code to production
+Reviewed doc to present py cve remediation to sustaining folks
+Checked the costs of our clusters since we added the node auto-prov
+Meeting with Sergio
+
+
+Sergio Schvezov
+:desert_island:  4:54 AM
+Tuesday:
+Derefence annotated tags to properly annotate sboms https://github.com/chainguard-dev/ecosystems-wheel-rebuilder/pull/793
+Worked on older protobuf versions
+technically Wednesday, on the roof cleaning the gutter at 2am in a thunderstorm as it was clogged from eucalyptus leaves and seeds, today will be slow
+#793 fix: derefences annotated tags
+Fixes: chainguard-dev/internal-dev#24381
+--- lbuild-out/sbom.spdx.json    2025-11-11 17:43:28.510830804 -0300
++++ new-sbom-protobuf_6.32.0.spdx.json    2025-11-11 17:28:46.424402695 -0300
+@@ -3,7 +3,7 @@
+   "dataLicense": "CC0-1.0",
+   "SPDXID": "SPDXRef-DOCUMENT",
+Show more
+<https://github.com/chainguard-dev/ecosystems-wheel-rebuilder|chainguard-dev/ecosystems-wheel-rebuilder>chainguard-dev/ecosystems-wheel-rebuilder | Nov 11th | Added by GitHub
+
+
+Wesley Wiedenmeier
+  7:43 AM
+Monday (Tuesday was holiday):
+Finished and merged PR to copy version specific build configs using conventional code instead of AI
+More document review/comment follow-up from golang CVE planning
+Triaged + shipped a remediation for new prospect alara
+Worked on documentation for the current remediation process
+Got a lot of progress done on adding a wiki page, draft PR https://github.com/chainguard-dev/wiki/pull/2304 (not complete yet, need to finish before review)
+Improved CVE remediation diagrams so they're side to side instead of super tall, which makes them much more readable
+Working through detailed instructions on how to actually run a remediation
+Started planning presentation to onboard sustaining engs onto CVE remediation in Cancun
+Today:
+Main priority is finishing wiki page documenting how to run CVE remediation
+Going to put some more detailed notes together for presenting in Cancun, and will check that sustaining will have the right permissions to run through the process
+Will work on splitting the AI backport process in half and building the patched wheel using conventional code. Don't know if I'll get this 100% working this week but would love to to help simplify things for sustaining when they start trying this process
+Shippin some remediations for new prospects
+(edited)
+
+
+Arkadiusz Czajkowski
+  7:49 AM
+today:
+working on backfiller (needs some attention after recent changes - migration to Argo WF)
+NASDAQ - finished (100%) coverag
+Started to work on Method Security (keeping in mind Geico)
+:raised_hands:
+1
+:tada:
+2
+
+
+
+Dann Frazier
+  8:59 AM
+Monday:
+I fixed the remaining issue causing significant test differences between our pytorch build and upstream's and re-ran just those tests - they all came back clean. This one was also reported upstream by someone else, but upstream didn't know the answer, so I wrote up an explanation to hopefully help upstream address this more cleanly.  Perhaps I should open a PR w/ a proposed fix.
+Today:
+I think we're ready to go with the prod build, but I want to make a pass on the other results I have to make sure I didn't miss anything. If I can get the build done today, I can kick off some testing to run ahead of Mexico.
+Thur/Fri: out of office.
+:cool_doge:
+3
+:party-blob:
+3
+
+
+1 reply
+26 days agoView thread
+
+
+Pawel Palucha
+  10:51 AM
+Rebuilder API is successfully deployed into dev-eco; we just need to give it access to GAR/GCS to test 'invalidate' endpoint
+Reviewing PRs (gen-0 -> gen-1, commit hashes for annotated tags)
+Checking SBOMs issue (it doesn't seem to be a real issue)
+Polishing slides for the all-hands presentation
+
+
+Sam Dacanay
+  11:45 AM
+Friday/Monday:
+return from vacation
+caught up on js things, chainver things, java things
+submitted rest of P1 customers for JS
+Today/This week
+figure out how to make a massive submit.json for the following criteria:
+  Package must have at least one successful build already
+  Additional versions must be from last 2 years (not 5)
+  Only build versions we haven't built yet
+investigate work to make submission process a workflow (like we are doing with java)
+https://github.com/chainguard-dev/internal-dev/issues/24392 (finish up a few minor chainver <--> chainctl integration tasks)
+
+
+Arkadiusz Czajkowski
+  6:33 AM
+Today:
+working on Batch Rebuilder (backfill feeder)
+clean up dead code
+assure batches marks created builds as failed when Backfill requests fails
+simplified workflow
+made some local tests
+cleaning up failing tests after above
+planing to try new batch tool on DEV
+next step after above is finished will be running Method Security and Geico rebuilds on PROD
+
+
+Sergio Schvezov
+:desert_island:  7:27 AM
+Wednesday:
+slow day due to lack of sleep
+testing matrix for wheel rebuilder
+working builds with upb for past versions of protobuf (workspace vs blzmod setup depending on version)
+Today:
+With the changes I made on Monday, I revisited the protobuf patches and got rid of them as they are no longer needed
+Last week I was missing CMake from all the bazeling, this I find myself enjoying it (send help)
+Later today,
+continue the burn down on the top wanted packages
+add wheel information or as much as what is available to script builder, to the test environment
+
+
+
+5 replies
+Last reply 20 days agoView thread
+
+
+Wesley Wiedenmeier
+  7:31 AM
+Yesterday:
+Triaged CVE remediations for new prospect flywheel, and did 3 backports for them
+Good progress on documentation for CVE remediation
+Split the one very long wiki article I was working on into an architecture overview, a FAQ, and documentation on how to perform a remediation
+Filled out the FAQ and got the architecture overview ready to go, still working on documentation on performing a remediation. Most steps are documented, just need to write up test suite discovery plus some troubleshooting information
+These docs are taking much longer than expected to write, but will be valuable
+Today:
+Finally get wiki 100% complete
+Check that sustaining will have the permissions they need to attempt a remediation during the presentation next week. May need to grant access to pull rebuilder docker image, etc
+Put together slides to present remediation process
+Ship some more patches
+
+
+Hector Fernandez
+  7:32 AM
+Yesterday:
+Interviewed a candidate
+Python: Gen-0 to Gen-1 migration
+Metadata-cache started to work on that task
+Added taints to our control-plane nodes on dev-eco
+Meetings
+Today:
+Configured my enforce devenv to run metadata-cache on my devenv for testing purposes
+Meetings
+Continued working on the changes for the UI console in the api-impl
+
+
+Charlie Robbins
+  7:51 AM
+Previous:
+:white_check_mark: Finish improvements completed overhaul to build coverage, analysis, & reporting tooling
+PR is up and awaiting review
+:white_check_mark: Help @dakaneye ramp-up after returning from paternity leave
+:white_check_mark: Interview candidate for JS
+:white_check_mark: Assess & report on upcoming / imminent industry competition
+Next:
+Use improvements to analysis tooling to:
+fully report on RocketLab coverage
+categorize resolve failures (currently make up 50% of all failures)
+Identity top 10 issues that will improve coverage, which is already bearing fruit:
+:x: Pack phase failed for @commitlint/types@19.8.1: ENOENT: no such file or directory, open '/home/node/.config/chainguard/npm-NZm7b6/.npmrc.install' Error: ENOENT: no such file or directory, open '/home/node/.config/chainguard/npm-NZm7b6/.npmrc.install' appears to be the cause of the high number of failures in the pack phase which will be easily fixable to see if is the root cause
+... more to come
+Soon:
+Use failure analysis to inform improvements to resolve
+Merge open PRs with incremental improvements
+Explore how well third-party web-available sources perform
+Enumerate npm specific GAR replacement requirements in Technical Design Doc
+:raised_hands:
+1
+
+
+
+Arkadiusz Czajkowski
+  9:35 AM
+Backfilled
+fix http probe
+adjust backfill configs
+fix backfill Job status model
+some small fixes in batch rebuild scripts
+successfully run small rebuild batch on DEV-ECO
+Created Method Security and Geico common libs files
+not much of them but at least we know what to look at first
+Checked coverage for Nasdaq/Verafin
+Identified new problem - which requires some diagnosis
+org.jdbi.v3.core.statement.UnableToExecuteStatementException: org.postgresql.util.PSQLException: ERROR: duplicate key value violates unique constraint "uq_source_ref_repo_pkg_type_value"
+  Detail: Key (repository_id, package_id, type, value)=(6068, 22241, commit, b8d5ecd40b9cfbd9cafc08bf50bd2382369812e9) already exists. [statement:"INSERT INTO "source_ref" ( "package_id", "repository_id", "type", "value", "properties") VALUES ( :params.packageId, :params.repositoryId, :params.type, :params.value, :params.properties) RETURNING *", arguments:{finder:[{lazy bean property arguments "SourceRef id: null, type: commit, value: b8d5ecd40b9cfbd9cafc08bf50bd2382369812e9"}}}]
+        at org.jdbi.v3.core.statement.SqlStatement.internalExecute(SqlStatement.java:1821)
+        at org.jdbi.v3.core.result.ResultProducers.lambda$createResultBearing$0(ResultProducers.java:110)
+        at org.jdbi.v3.core.result.internal.ResultSetSupplier.get(ResultSetSupplier.java:55)
+        at org.jdbi.v3.core.result.internal.ResultSetResultIterator.<init>(ResultSetResultIterator.java:53)
+        at org.jdbi.v3.core.result.internal.ResultSetResultIterable.iterator(ResultSetResultIterable.java:50)
+        at org.jdbi.v3.core.result.ResultIterable.findFirst(ResultIterable.java:241)
+        at org.jdbi.v3.sqlobject.statement.internal.ResultReturner$CollectedResultReturner.mappedResult(ResultReturner.java:317)
+        at org.jdbi.v3.sqlobject.statement.internal.SqlQueryHandler.lambda$configureReturner$0(SqlQueryHandler.java:63)
+        at org.jdbi.v3.sqlobject.statement.internal.CustomizingStatementHandler$3.invoke(CustomizingStatementHandler.java:195)
+        at org.jdbi.v3.core.extension.ExtensionMetadata$ExtensionHandlerInvoker.lambda$invoke$0(ExtensionMetadata.java:344)
+        at org.jdbi.v3.core.AbstractHandleSupplier.invokeInContext(AbstractHandleSupplier.java:36)
+        at org.jdbi.v3.core.extension.ExtensionMetadata$ExtensionHandlerInvoker.call(ExtensionMetadata.java:362)
+        at org.jdbi.v3.core.extension.ExtensionMetadata$ExtensionHandlerInvoker.invoke(ExtensionMetadata.java:345)
+        at org.jdbi.v3.core.extension.ExtensionFactoryDelegate.lambda$attach$0(ExtensionFactoryDelegate.java:117)
+        at jdk.proxy1/jdk.proxy1.$Proxy79.insert(Unknown Source)
+        at dev.chainguard.java.rebuilder.inventory.dao.InventoryService.attachSourceRefToSourceBuild(InventoryService.java:765)
+        at dev.chainguard.java.rebuilder.inventory.dao.InventoryService.lambda$addSourceBuild$24(InventoryService.java:399)
+        at org.jdbi.v3.core.transaction.LocalTransactionHandler$BoundLocalTransactionHandler.inTransaction(LocalTransactionHandler.java:229)
+        at org.jdbi.v3.core.Handle.inTransaction(Handle.java:719)
+        at org.jdbi.v3.core.Jdbi.lambda$inTransaction$0(Jdbi.java:455)
+        at org.jdbi.v3.core.Jdbi.withHandle(Jdbi.java:421)
+        at org.jdbi.v3.core.Jdbi.inTransaction(Jdbi.java:455)
+        at dev.chainguard.java.rebuilder.inventory.dao.InventoryService.addSourceBuild(InventoryService.java:326)
+        at dev.chainguard.java.rebuilder.inventory.dao.InventoryService.lambda$addSourceBuildWithConstraintHandle$17(InventoryService.java:310)
+        at dev.chainguard.java.rebuilder.inventory.dao.ConstraintHandle.handle(ConstraintHandle.java:29)
+        at dev.chainguard.java.rebuilder.inventory.dao.InventoryService.addSourceBuildWithConstraintHandle(InventoryService.java:305)
+        at dev.chainguard.java.rebuilder.inventory.dao.InventoryService.initGraphAnalysis(InventoryService.java:290)
+        at dev.chainguard.java.rebuilder.SourceBuildInitializer.internalInit(SourceBuildInitializer.java:52)
+        at dev.chainguard.java.rebuilder.SourceBuildInitializer.init(SourceBuildInitializer.java:31)
+        at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+        at java.base/java.util.ArrayList$ArrayListSpliterator.forEachRemaining(ArrayList.java:1708)
+        at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+        at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+        at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
+        at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+        at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
+        at dev.chainguard.java.rebuilder.backfill.BackfillSubmissionService.submitArtifactBatch(BackfillSubmissionService.java:161)
+        at dev.chainguard.java.rebuilder.backfill.BackfillSubmissionService.submit(BackfillSubmissionService.java:112)
+        at dev.chainguard.java.rebuilder.app.BackfillSubmitCommand.run(BackfillSubmitCommand.java:54)
+        at dev.chainguard.java.rebuilder.app.Main.main(Main.java:43)
+Caused by: org.postgresql.util.PSQLException: ERROR: duplicate key value violates unique constraint "uq_source_ref_repo_pkg_type_value"
+  Detail: Key (repository_id, package_id, type, value)=(6068, 22241, commit, b8d5ecd40b9cfbd9cafc08bf50bd2382369812e9) already exists.
+        at org.postgresql.core.v3.QueryExecutorImpl.receiveErrorResponse(QueryExecutorImpl.java:2734)
+        at org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2421)
+        at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:372)
+        at org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:518)
+        at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:435)
+        at org.postgresql.jdbc.PgPreparedStatement.executeWithFlags(PgPreparedStatement.java:196)
+        at org.postgresql.jdbc.PgPreparedStatement.execute(PgPreparedStatement.java:182)
+        at com.zaxxer.hikari.pool.ProxyPreparedStatement.execute(ProxyPreparedStatement.java:44)
+        at com.zaxxer.hikari.pool.HikariProxyPreparedStatement.execute(HikariProxyPreparedStatement.java)
+        at org.jdbi.v3.core.statement.SqlLoggerUtil.wrap(SqlLoggerUtil.java:32)
+        at org.jdbi.v3.core.statement.SqlStatement.internalExecute(SqlStatement.java:1819)
+        ... 39 more
+(edited)
+
+
+Pawel Palucha
+  10:49 AM
+Yesterday/Today:
+PR for rebuilder-api access to GAR/GCS is ready, merging will be complex as it requires playing with terraform state
+Started testing authentication in rebuilder-api and found out that it's not working; created PR to change it to Chainguard OIDC tokens
+Looking at gen-1 misses for existing customers + Canvas
+Lot of config fixes for specific packages
+Rebuilder fixes:
+Added --force flag for checkout, fixes issue with dirty cloned repositories
+Fixed passing submodules options to prepare script
+Added support for version ranges in packages configs
+Meetings, PR reviews
+
+
+Wesley Wiedenmeier
+  3:03 PM
+Today:
+Got a few remediations ready to go for high priority prospects
+Shipped several apache airflow providers required for one P0 prospect
+Worked on presentation for sustaining onboarding. Didn't get as much done on this as planned, but will get this ready to go before Cancun
+
+
+Arkadiusz Czajkowski
+  8:03 AM
+Today:
+- analyze and fix aws-sdk-java-v2 to produce bundled shaded jars
+- fix issue with multiple packages sharing same source_ref in same repository
+- fix purls not allowing lack of version
+- fixed corrupted prod-eco configuration
+- pre-prepere and re-run batch rebuild for Method Security and Geico
+- implemented reporting on parallel build details for easier diagnostics
+- fix toleration and affinity for rebuilder POD’s
+- adjusted memory to match latest MemoryTiers settings
+- add usage of Additional Cmd options during dependency resolution step.
+- deduplicated remaining artifacts for Method Security / Geico
+out of over 600 artifacts we have 192 source builds to fix.
+
+1 reply
+21 days agoView thread
+
+
+Charlie Robbins
+  2:04 PM
+Today:
+Wrapped up alf3 PR & ran it against the most recent few customer lockfiles
+Finished up API specification for npm registry API to support GAR replacemen
+Tomorrow:
+Analyze the alf3 outputs for recent customer lockfiles
+Use this to validate current draft PRs
+Complete draft PRs & verify with improved integration test harness
+Google Docs
+
+Google Docs Logo
+Survey of Language Ecosystem Package Registry APIs & Client Capabilities
+Document in Google Docs
+Nov 17
+Survey of Language Ecosystem Package Registry APIs & Client Capabilities
+
+
+
+
+2 replies
+Last reply 20 days agoView thread
+
+
+Arkadiusz Czajkowski
+  8:36 AM
+today:
+worked on a better way to define module exclusion for build (it’s required for AWS SDK which is adding and removing test modules often - they also cause build failures - so we don’t want to build them)
+solving issue on projects failing on resolve step.
+it’s done and solved
+pushed MethodSecurity coverage from 52 to 62%
+:nice:
+1
+
+
+
+Charlie Robbins
+  7:12 AM
+Yesterday:
+PR for re-worked integration test suite, aka citgm ("canary in the gold mine") test suite
+PR for duckdb based log analysis which enables very fast local querying of customer lockfile runs
+Today:
+Merge both PRs (code review if you've got cycles at the offsite would be welcome)
+Wrap up work on citgm integration test suite (still two remaining Phases of work)
+Re-download results for P0 and first 3 P1 customers:
+P0
+Abridge
+Wingspan
+ P1
+Altana
+Rocket Lab
+Forerunner
+Merge results into a single duckdb instance incrementally (to ensure fast queries stay fast), then look for top 5 most impactful improvements to make in the system to make into Github Issues
+#329 test(integration) overhaul our [broken] integration test suite
+<https://github.com/chainguard-dev/ecosystems-rebuilder.js|chainguard-dev/ecosystems-rebuilder.js>chainguard-dev/ecosystems-rebuilder.js | Nov 18th | Added by GitHub
+#330 data(duckdb) leverage duckdb for log analysis because it is local, free, and incredibly fast
+<https://github.com/chainguard-dev/ecosystems-rebuilder.js|chainguard-dev/ecosystems-rebuilder.js>chainguard-dev/ecosystems-rebuilder.js | Nov 19th | Added by GitHub
+
+
+Arkadiusz Czajkowski
+  7:16 AM
+Today:
+working on top missing dependencies for Method Security
+apache tika :green-circle-check:
+apache camel :green-circle-check:
+aws sdk v1 :green-circle-check:
+resteasy :green-circle-check:
+Re triger rebuild of (to take advantage of fixes from last 2 days)
+Method Security (67% coverage :chart_with_upwards_trend: 5%)
+Geico (49% coverage :chart_with_upwards_trend: 1%)
+DataHub (27% coverage :chart_with_upwards_trend: 6%)
+(edited)
+
+
+Arkadiusz Czajkowski
+  8:41 AM
+Today:
+continue working on top missing dependencies
+spring-boot 3.4.5 :green-circle-check:
+netty 4.1.128.Final :green-circle-check:
+aws sdk v2 2.32.25 :green-circle-check:
+camel-spring-boot came 4.4.0 :green-circle-check:
+Linkedin Pegasus 29.74.2 :green-circle-check:
+this required adding new know repository https://linkedin.jfrog.io/artifactory
+Status of customers coverage
+Method Security (67% coverage :double_vertical_bar: 0%)
+Geico (57% coverage :chart_with_upwards_trend: 8%)
+DataHub (39% coverage :chart_with_upwards_trend: 12%)
+Solved StackOverflowError in JavaDependencyContextRefiner https://github.com/chainguard-dev/ecosystems-java-rebuilder/commit/917768234f72eaf475d9984a488ef525b116cf81
+Looked at bumping Java Rebuilder to latest Java LTS 25
+(edited)
+
+
+3 replies
+Last reply 18 days agoView thread
+
+
+Charlie Robbins
+  8:58 AM
+Yesterday:
+Reviewed PRs to ecosystems-rebuilder.js to help accelerate peers
+Fixed subtly wrong behavior in our coverage reporting scripts (see: PR#332)
+Today:
+Complete specification of correct reporting values to eliminate drift observed from claude output over time (Draft PR#337)
+@bria.giordano @angela.zhang @Chris Armstrong will circulate the final formulae for reporting for awareness & input
+Current log collection has gaps (which we are triaging along side reporting correctness above), but above 90%, so we're "not letting perfect get in the way of good enough". Next steps are to ingest logs.txt for P0 and P1 customers  using the local duckdb to compile a spreadsheet of issues / improvements to review with @Chris Armstrong on Monday during our 1:1.
+Top identified thus far from rocketlab and forerunner are:
+Move "refuseBinary" to be a check that only runs on the final contents of the published tarball. Today we fail if binary content is in the source repository, but what we actually want to prevent is binary content in the published tarball. This appears to be driving a high number of failures
+Adding a "strategy" for building @types/* packages will significantly increase coverage
+Work with @dakaneye to use current (imperfect) tooling to re-submit lockfiles for customers >30 days:
+9/30: Altana
+10/20: Abridge, Trmc, Leolabs, Wingspan, Govsignals
+#332 Fix subtly wrong behavior in `scripts/bins/alf3 {collect,analyze}`
+<https://github.com/chainguard-dev/ecosystems-rebuilder.js|chainguard-dev/ecosystems-rebuilder.js>chainguard-dev/ecosystems-rebuilder.js | Nov 20th | Added by GitHub
+#337 wip(analyze) begin the root canal of correctness for `alf3 analyze` and `alf3 report`
+<https://github.com/chainguard-dev/ecosystems-rebuilder.js|chainguard-dev/ecosystems-rebuilder.js>chainguard-dev/ecosystems-rebuilder.js | Nov 21st | Added by GitHub
+:ack:
+1
+
+
+
+Arkadiusz Czajkowski
+  9:54 AM
+Today:
+whole day working on backfiller
+moving it from asking backfiler for state to asking DB
+
+
+Sam Dacanay
+  3:14 PM
+this week:
+lots of work on js submissions...reporting will happen over the weekend/monday: i couldn't get the scripts to work on hotel wifi.
+work on the submission tooling in alf3 and lots of claude agents improvements to support this
+
+
+Arkadiusz Czajkowski
+  6:02 AM
+Today:
+working on increasing coverage
+Method Security (67% coverage :double_vertical_bar: 0%)
+Geico (57% coverage :chart_with_upwards_trend: 8%)
+DataHub (39% coverage :chart_with_upwards_trend: 12%)
+Nasdaq/Verafin (45% coverage :chart_with_upwards_trend: 34% )
+trying to trace down https://github.com/chainguard-dev/internal-dev/issues/21024 as it's making rebuild harder
+:fire:
+1
+:thankyou2:
+1
+
+
+
+Lyndsea Warkenthien
+  6:14 AM
+Today:
+posting my first update to #eng-ecosystems-standup
+working through my onboarding document (link)
+meetings:
+increasing coverage
+initiatives stand-up
+monthly field feedback call
+breaking changes council
+reach out to folks for more 1:1s
+Skill Jar Courses
+Google Docs
+
+Google Docs Logo
+Lyndsea Warkenthien - Onboarding Document
+Document in Google Docs
+Nov 24
+Lyndsea Warkenthien - Onboarding Document
+
+
+:purple_heart:
+2
+
+
+1 reply
+14 days agoView thread
+
+
+Pawel Palucha
+  7:37 AM
+Updated PR with roles/capabilities for Rebuilder API, about to be merged
+Added table for storing audit log entries to ecosystems database
+
+
+Dann Frazier
+  7:46 AM
+Last week:
+Set up a satellite pytorch test instance to allow me to run my pytorch testing automation remotely w/o relying on my laptop's connectivity at the sprint. That was quite manual, but is something I need to automate.
+Kicked off testing on pytorch 2.8.0 prod builds; the smoke test configs and distributed configs all showed success, but we hit failures in the 1 "full" test. Root caused and prepared a fix.
+Began debug on protobuf/ARM crash reported by delivery
+Discussed the triton-vendored-NVIDIA libs issue w/ legal on slack. We've a meeting set up to discuss tomorrow (will add @angela.zhang and @Dan Ryan as optional).
+Submitted an initial fix back upstream to pytorch, but requires signing a CLA. Also on the agenda for tomorrow. Discussed blog post w/ @manfred.moser and contributing these fixes back seem like a valuable part of the story arc.
+Sync'd the various 2.8.0 fixes back to our torch 2.7.1 recipe. This build is blocked by triton 3.3.1 - I've got a recipe for this in progress.
+Met w/ @wesley.wiedenmeier @pawel.palucha and @sergio.schvezov to discuss a few improvements. I captured these on paper, will convert to linear issues
+Non-library things
+Worked w/ James Page to resolve a customer P1 w/ tritonserver
+Planned out next steps for sustainable AI/ML images w/ OS team
+Working on initial PRs to move tritonserver stack to CUDA 13
+Today:
+Figure out plan for the torch 2.8.0 rebuild
+triton 3.3.1 build
+Continue work on protobuf debug
+
+
+Hector Fernandez
+  8:12 AM
+Today:
+Code reviews
+Reviewed doc around Automated Build Fixes
+Opened a PR with the API implementation of the backed cache endpoints for listing remediated packages and listing cuda packages by version
+Fixed the cuda indexes
+Tainted prod-eco-python and prod-eco-js clusters
+Talked with Arka about db migrations
+Looked at our infra to fetch logs from build jobs
+
+
+Sam Dacanay
+  10:07 AM
+today:
+reporting on customers submitted last week:
+t-mobile
+telly-tv
+nasdaq
+alara
+re-running some older lockfiles to see if we get some improvement:
+altana
+abridge
+trmc
+leolabs
+wingspan
+govsignals
+pending if we should pause for shai-halud v2
+prep work for new p1 customer: strider-intel
+continue work on improving alf3 and preparing image/workflow for easier execution
+(edited)
+
+
+4 replies
+Last reply 14 days agoView thread
+
+
+Pawel Palucha
+  8:13 AM
+Updating https://github.com/chainguard-dev/mono/pull/29170, waiting for approval
+Working on background job to update status of uploaded  customer requests - draft PR at https://github.com/chainguard-dev/mono/pull/29251
+
+
+Arkadiusz Czajkowski
+  8:55 AM
+today:
+working on increasing coverage
+Method Security (67% coverage :double_vertical_bar: 0%)
+Geico (57% coverage :double_vertical_bar: 0%)
+DataHub (43% coverage :chart_with_upwards_trend: 4%)
+Nasdaq/Verafin (53% coverage :chart_with_upwards_trend: 8% )
+:wild-eyes:
+2
+
+
+
+6 replies
+Last reply 13 days agoView thread
+
+
+Lyndsea Warkenthien
+  9:07 AM
+Working through Onboarding doc
+Hoping to get environment spun up today
+:white_check_mark: finished Foundations of Software Supply Chain Security
+in progress - Chainguard Containers Crash Course
+getting familiar with Libraries Requests
+reading over 'Libraries chainver to chainctl migrations'
+sync with @bria.giordano and @angela.zhang on areas to start on in my first 30 days
+setting up weekly / bi-weekly 1:1s (let me know if you think we should be syncing for 25 mins!)
+:raised_hands:
+1
+
+
+1 reply
+13 days agoView thread
+
+
+Dann Frazier
+  9:40 AM
+Yesterday:
+Got triton 3.3.1 building locally (unblocks torch 2.7.1)
+Debugged torch 2.8.0 compiler crash issue - found a fix, and wheel now builds to completion, but doesn't yet pass auditwheel's ABI check.
+Started looking at Anurag's torchvision PR and testing it out (as Astral considers this a higher priority than flash-attn now)
+Today:
+Lower the build parallelism for triton so that it can build reliably on our cluster w/o OOMing
+prod triton builds for 3.4.0 (ARM) and 3.3.1 (ARM/x86)
+PR fixes torch/ARM ICE
+continue looking at torchvision
+debug ARM/torch/2_28 auditwheel failure
+
+
+3 replies
+Last reply 13 days agoView thread
+
+
+Sergio Schvezov
+:desert_island:  4:20 PM
+Today
+Code Reviews
+feat(rebuilder-api): use Chainguard OIDC for authentication mono#29170
+feat: Add build config for celery 4.4.7 ecosystems-packages#700
+docs: Improve formatting on CVE remdiation diagrams ecosystems-packages#703
+Canva Coverage (Canva: Python Libraries #20893 (comment))
+gensim 4.3.2
+needs scipy<1.14.0,>=1.7.0
+scipy 1.9.3
+needs pybind11<2.11.0,>=2.4.3
+requirements file has these two which are covered:
+pybind11==2.11.1
+pybind11==2.13.6
+pybind11 2.10.4
+to satisfy scipy
+requires new config: fix(pybind11): lock version 2.x to cmake<4 and add setuptools ecosystems-packages#707
+dbt-adapters 1.16.7
+requires specific config feat(dbt-adapters): specific config for commit to 1.16.7 ecosystems-packages#704
+dbt-extractor 0.5.1
+needs maturin<1.2,>=1.1
+fequires config, also works for 0.6.0 (already in libraries but 2_39) feat(dbt-extractor): add rebuild config for maturin abi3 builds ecosystems-packages#708
+did this one with Claude, told it about version-ranges here chore(python): add hints about version-ranges to CLAUDE.md ecosystems-packages#709
+maturin 1.2.1
+to satisfy dbt-extractor 0.5.1
+generalized config to enable 2_28 feat(maturin): enable 2_28 ecosystems-packages#706
+(edited)
+
+
+Charlie Robbins
+  7:58 AM
+## Previous
+:white_check_mark: Complete specification of correct reporting values to eliminate drift observed from claude output over time (PR#337)
+@bria.giordano @angela.zhang @Chris Armstrong converted two of the new reports from Markdown into a Google Doc here to rapidly gather feedback
+:white_check_mark: Current log collection has gaps (which we are triaging along side reporting correctness above), but above 90%, so we're "not letting perfect get in the way of good enough". Next steps are to ingest logs.txt for P0 and P1 customers  using the local duckdb to compile a spreadsheet of issues / improvements to review with @Chris Armstrong on Monday during our 1:1.
+Outcome: have clear top 5 that would take a large bite out of 61.1% of build failures for Telly, Nasdaq, RocketLabs, and Forerunner
+:white_check_mark: Work with @dakaneye to use current (imperfect) tooling to re-submit lockfiles for customers >30 days:
+Outcome: all builds run yesterday, thanks Sam! :heart_hands:
+:white_check_mark: Complete overhaul of alf3 ("assembly line formation, fitness, & forensics) tooling within JS rebuilder.
+:new: Introduced the concept of an "EFA" (Explainer for Agents) which is quickly proving to be a useful Context Engineering technique
+## Next
+1-pager for Monday before standup that walks through top items to improve JS coverage
+Use new alf3 tooling to collect metadata, analyze & report for all builds within the last 30 days
+Use logs as input to duckdb based log analysis to validate the final prioritization of Top 5
+Finish end-to-end integration test tooling for our citgm-suite (citgm = "canary in the gold mine")
+Outcome: every material edge case we encounter from customers or in the wild will become a citgm based test to avoid future regressions   
+Outcome: high end-to-end test coverage for these edge cases and pre-existing happy cases give us high confidence to iterate on the system to increase coverage 
+Support @dakaneye's in-flight work to automate execution, analysis, and reporting on rebuild runs for customer lockfiles
+Code reviews for  to get alf3 running inside of an Argo workflow
+Benchmark collection performance for baseline (gcloud log queries can be slow sometimes)
+#337 refactor(alf3) the root canal of correctness for `alf3 analyze` and `alf3 report`
+<https://github.com/chainguard-dev/ecosystems-rebuilder.js|chainguard-dev/ecosystems-rebuilder.js>chainguard-dev/ecosystems-rebuilder.js | Nov 21st | Added by GitHub
+0001-reporting-ground-truth.md
+<https://github.com/chainguard-dev/ecosystems-rebuilder.js|chainguard-dev/ecosystems-rebuilder.js>chainguard-dev/ecosystems-rebuilder.js | Added by GitHub
+Google Docs
+
+Google Docs Logo
+New Customer Report Format: JS
+Document in Google Docs
+Nov 26
+New Customer Report Format: JS
+
+
+:raised_hands:
+1
+
+
+
+2 replies
+Last reply 12 days agoView thread
+
+
+Arkadiusz Czajkowski
+  9:07 AM
+today:
+working on increasing coverage
+Method Security (67% coverage :double_vertical_bar: 0%)
+Geico (60% coverage :chart_with_upwards_trend: 3%)
+DataHub (50% coverage :chart_with_upwards_trend: 7%)
+Nasdaq/Verafin (62% coverage :chart_with_upwards_trend: 9% )
+Salesforce (61% coverage :chart_with_upwards_trend: 31% )
+CC: @bria.giordano @angela.zhang (edited) 
+:nice:
+1
+:eyes:
+1
+
+
+
+4 replies
+Last reply 12 days agoView thread
+
+
+Dann Frazier
+  9:23 AM
+yesterday:
+discussion with legal on redistribution of NVIDIA components and getting approval to sign a CLA to submit patches back to pytorch upstream
+finished triton 3.3.1 config to unblock torch 2.7.1 (sans some shellcheck linting i need to clean up)
+manually tested triton 3.3.1 on an ARM in EC2. I learned that we really don't have any reasonable ARM + GPU options available in the clouds we use; need to discuss options (getting access to a4x instances, other clouds, or maybe just a DGX spark for home)
+i have torchvision building on x86 but failing auditwheel - looks like an easy fix
+BLOCKER: ^ the above uses a hack to install the deps for pytorch from nvidia. we need to get those into our proprietary deps repo so we can use them at build-time (perhaps we should sync cuda deps from nvidia automatically)
+I have torch 2.8.0 building on ARM, but also failing auditwheel
+Today:
+open issues for all of the above WIPs to share status and so I don't forget where I'm at over the long weekend :slightly_smiling_face:
+test triton 3.3.1 on x86, fix shell check issues, and hopefully get a prod build
+debug torchvision/torch-on-ARM auditwheel issues
+pick up ingredients for the non-dairy green bean casserole i'm bringing to friendsgiving tomorrow
+
+
+Dann Frazier
+  10:09 AM
+Oh, I should note that I'll be out most of Monday for an eye doctor's appointment in Boulder - need to drive an hour each way, and they need to do a heavy dilation that prevents me from using screens for a while after. Sorry, that's actually the following Monday (08-Dec) (edited) 
+
+
+Hector Fernandez
+  2:22 PM
+yesterday:
+Finished the doc with the notes about our discussion related to the cve remediation
+Proposed some changes in relation to the memory leak issues on the proxy
+Proposed some improvements to the way we handle cuda versions on the proxy
+Code reviews
+Went to the dentist
+Brough my kid to his Dr appointment
+today:
+Worked on collecting the logs from gcp for our failing build pods on dev-eco
+Worked on adjusting the loganalyzer agent to analyze build logs from the rebuilder outputs
+Helped Pawel on moving forward regarding rebuilder-API auth
+Fixed the proxy to setup the profiler
+Fixed the prod-eco dashboards which were failing due to some changes on the used datasets
+
+
+Sergio Schvezov
+:desert_island:  3:41 PM
+Today:
+numpy for 1.x with version range for 1.x with pin to gcc 13 to avoid build failures https://github.com/chainguard-dev/ecosystems-packages/pull/711
+I believe I backfilled all customer requirements for numpy with this
+dependency hell to get scipy for Canva working with inconsistent version dependencies between pythran, benigret and gast
+wheel created (after sweating a bit, although it is 40C here :sweat_smile:), PR tomorrow
+#711 chore(numpy): version range, gcc pin and arm64
+In support of chainguard-dev/internal-dev#20893 as scipy==1.9.3 pins  
+to numpy==1.23.2
+ERROR: Could not find a version that satisfies the requirement numpy==1.23.2 (from versions: 1.23.5, 1.25.2, 1.26.3, 2.0.1, 2.0.2, 2.1.0, 2.1.1, 2.1.2, 2.1.3, 2.2.0, 2.2.1, 2.2.2, 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.3.0, 2.3.1, 2.3.2, 2.3.3, 2.3.4, 2.3.5)
+
+The pin to 13 is due to a gcc-14 issue (which was not available at the  
+if the original config), to prevent:
+/usr/lib/gcc/x86_64-pc-linux-gnu/14/../../../../x86_64-pc-linux-gnu/bin/ld: build/lib.linux-x86_64-3.11/numpy/core/_multiarray_umath.cpython-311-x86_64-linux-gnu.so: hidden symbol `_Z17string_aheapsort_IN3npy10string_tagEcEiPT0_PllPv' isn't defined
+Show more
+Comments
+3
+<https://github.com/chainguard-dev/ecosystems-packages|chainguard-dev/ecosystems-packages>chainguard-dev/ecosystems-packages | Nov 26th | Added by GitHub
+
+
+Arkadiusz Czajkowski
+  8:26 AM
+today:
+focused on Datahub as it had the lowest coverage
+tomcat 5.5.x :octagonal_sign:
+did my best but it's 13y old
+some of the dependencies can't be reach normaly
+it was build using Java 1.4
+I belive it does not makes sense to build it
+ebean-orm  :green-circle-check:
+manged to resolve and build
+org.scala-sbt:collections_2.13:1.10.4 :octagonal_sign:
+tried multiple approaches but still fail to build it
+with standard approach it just releases Scala 2.12 artifacts
+we need both Scala 2.12  and Scala 2.13
+seems I've fixed most of easy problems
+now I will try to target to project (providing most of artifacts)
+as can be seen in point above it's not easy and not super effective
+DataHub coverage :chart_with_upwards_trend: 2% for today
+Starting tomorrow I'm on PTO since 02.12
+UPDATE :fire:
+managed to solve org.scala-sbt:collections_2.13:1.10.4
+the build is now  :green_heart: :awesome:
+DataHub coverage :chart_with_upwards_trend: up to 3,5% for today
+ (edited) 
+
+
+4 replies
+Last reply 7 days agoView thread
+
+
+Hector Fernandez
+  1:19 PM
+Today:
+Investigated memory leak issue on the proxy
+Worked on the loganalyzer agent for libraries: added context about our common errors and collected production available logs
+
+
+Sergio Schvezov
+:desert_island:  1:54 PM
+Today
+Code Reviews
+feat(rebuilder-api): Add coverage checker for package requests mono#29251
+long one, will continue tomorrow
+Canva Coverage (Canva: Python Libraries #20893 (comment))
+gensim 4.3.2
+gensim was failing tests fix(gensim): add compatible scipy versions for testing ecosystems-packages#714
+migrated individual versioned configs to a version range
+scipy 1.9.3
+Set the right trifecta for pythran, gast and beniget feat(scipy): patch for 1.9.3 to align beniget, gast and pythran ecosystems-packages#712
+backfilled
+av==12.0.0
+has GLIBC 3_34
+av.libs/libbrotlicommon-22cb717f.so.1.2.0
+av.libs/libavformat-6bf975fb.so.60.16.100
+av.libs/libavutil-77de760d.so.58.29.100
+av.libs/libavfilter-1b877fce.so.9.12.100
+av.libs/libavcodec-938e6134.so.60.31.102
+feat(av): install ffmpeg-6 for av < 14 ecosystems-packages#713
+chore(eco-2.28): add ffmpeg-6 to allowlist mono#29290
+
+
+Sergio Schvezov
+:desert_island:  3:49 AM
+Friday
+Code Reviews
+feat(rebuilder-api): Add coverage checker for package requests #29251
+Configs
+Blocked
+av==12.0.0 (Canva): needs 2-28 ffmpeg-6 -> https://github.com/chainguard-dev/ecosystems-packages/pull/713
+discussed with @sil2100, there is no working setup for enterprise/2.28
+av==13.1.0: needs 2-28 ffmpeg-6
+PRs
+log-config==0.0.14 (Canva): feat(log-symbols): commit for 0.0.14 ecosystems-packages#715
+scikit-image==0.20.0 (Canva): feat(scikit-image): config for pre 0.21.x ecosystems-packages#716
+Backfilled
+ddtrace==3.14.1
+ddtrace==3.16.2 (Canva)
+gensim==4.3.0
+gensim==4.3.1
+gensim==4.3.2 (Canva)
+gensim==4.3.3
+numpy==1.23.3 (Canva): needed by scikit-image==0.20.0
+
+1 reply
+7 days agoView thread
+
+
+Pawel Palucha
+  7:50 AM
+I tried to test invalidation on dev environment; we had some permissions issues that I fixed but it's not been deployed to some other infra issues - being worked on now by Slavina
+Updated PRs for customer requests after comments; need reviews/approvals on https://github.com/chainguard-dev/mono/pull/29295 and https://github.com/chainguard-dev/mono/pull/29251
+
+
+Benedikt Ritter
+  8:01 AM
+caught up after time off
+started to look into missing Method Security libs
+Created two PRs working on the third
+
+
+Sam Dacanay
+  9:11 AM
+last week:
+alf3 image with apko
+alf3 argo workflow draft + infra work
+submissions/reporting improvements on alf3
+
+
+2 replies
+Last reply 6 days agoView thread
+
+
+Wesley Wiedenmeier
+  10:17 PM
+Monday:
+Catch up on slack/email/etc
+Added package config eval criteria, error categories, and fixer adaptations sections to the auto fixer design doc
+Couple CVE remediations for prospect everbright
+Implemented fixer agent updates to enable using it for ecosystems, draft PR
+Working on fixer agent prompts for ecosystems
+(edited)
+
+
+Hector Fernandez
+  1:28 AM
+Monday:
+Catch up with Wesley on the progress towards an automated fixer
+Improved the prompt to include additional context to our future fixer agent
+Regenerated
+Prepared a presentation for the next brownbag session
+Addressed comments on my open PRs about the proxy server
+Looked at the existing fixer AI agent to understand how we could integrate it into the libs
+
+
+Lyndsea Warkenthien
+  7:31 AM
+Mon/Tues:
+In progress - my assessment of the current customer intake process
+In progress - putting the intake process updates into a linear project
+TODO - set up meetings with intake process stake holders on Sales Engineering side
+TODO - set up a similar project process for the RCA project for Product Org.
+Ecosystems Customer Intake Process Refinement
+Starting with Python, End-to-End, this project will track the discovery, design, and rollout of the improved Libraries intake process at Chainguard.
+Status  In Progress
+Start date  Dec 1
+Target date  Jan 2, 2026
+Lead  Lyndsea Warkenthien
+Added by Linear
+
+
+Benedikt Ritter
+  8:03 AM
+Today:
+worked on a bunch of issues I found in how we handle older Gradle versions. Created a PR covering three issues: https://github.com/chainguard-dev/ecosystems-java-rebuilder/pull/647
+started work on https://github.com/chainguard-dev/internal-dev/issues/20904
+#647 fix(gradle): Handle old Gradle versions better
+<https://github.com/chainguard-dev/ecosystems-java-rebuilder|chainguard-dev/ecosystems-java-rebuilder>chainguard-dev/ecosystems-java-rebuilder | Dec 2nd | Added by GitHub
+#20904 Java: Separate build preprocessing from database updates
+<https://github.com/chainguard-dev/internal-dev|chainguard-dev/internal-dev>chainguard-dev/internal-dev | Oct 7th | Added by GitHub
+
+
+Pawel Palucha
+  8:44 AM
+Working on auto-triggering missing packages/versions when checking coverage for customer requests
+Invalidate artifacts is currently blocked on infra fixes so we can deploy permission changes
+
+
+Dann Frazier
+  10:17 AM
+Yesterday:
+merged changes that allow me to start doing dev builds of triton 3.3.1, pytorch 2.8.0 for ARM and torchvision. dev builds failed due to missing dependencies, diagnosing.
+Today:
+bootstrapping dev gen-1 (we hadn't done this, and that's why i'm missing deps)
+submitting builds for the above packages - iterating on builds that fail, begin testing on builds that succeed
+
+
+Dann Frazier
+  11:15 AM
+my eye dr appt moved to tomorrow, so heads-up I'll be out a lot of tomorrow AM
+:wild-eyes:
+1
+
+
+
+Wesley Wiedenmeier
+  11:24 AM
+I need to run a quick errand this afternoon at ~2:30-3:30, will catch up this evening
+
+2 replies
+Last reply 6 days agoView thread
+
+
+Sergio Schvezov
+:desert_island:  2:36 PM
+Monday
+Code Reviews
+https://github.com/chainguard-dev/mono/pull/29251
+Configs
+Started
+pyarrow==0.16.0 (Canva)
+av ffmpeg-6 path forward discussion with Dann
+PRs
+partial-json-parser==0.2.1.1.post4 (Canva): https://github.com/chainguard-dev/ecosystems-packages/pull/720
+opentelemetry-exporter-prometheus==0.58b (Canva): https://github.com/chainguard-dev/ecosystems-packages/pull/721
+ftfy==6.1.3 (Canva): https://github.com/chainguard-dev/ecosystems-packages/pull/722
+xmljson==0.2.1 (Canva):https://github.com/chainguard-dev/ecosystems-packages/pull/723
+Backfilled
+scikit-image==0.20.0 (Canva)
+partial-json-parser==0.2.1.1.post4 (Canva)
+parsedatetime==2.4 (Canva)
+xmljson==0.2.1 (Canva)
+Tuesday
+Solution
+Created https://linear.app/chainguard/issue/ECO-63/consume-js-from-ecosystems-libraries-when-creating-python-packages
+Configs
+PRs
+ninja fix: https://github.com/chainguard-dev/ecosystems-packages/pull/725
+bokeh (Canva): https://github.com/chainguard-dev/ecosystems-packages/pull/726
+plotly==518.0 (Canva): https://github.com/chainguard-dev/ecosystems-packages/pull/727
+langfuse==3.6.1 (Canva): https://github.com/chainguard-dev/ecosystems-packages/pull/728
+watchfiles==0.21.0 (Canva): https://github.com/chainguard-dev/ecosystems-packages/pull/729
+Backfilled
+ftfy==6.1.3 (Canva)
+opentelemetry-exporter-prometheus==0.58b (Canva)
+aiohttp==3.8.4 (Strider-Intel)
+duckdb==0.7.1 (Strider-Intel)
+numpy==1.24.2 (Strider-Intel)
+plotly==6.0.0 (missing libs list)
+plotly==5.18.0 (Canva)
+plotly==5.24.1 (EverBright / NextEra|DATA HUB PRIVATE LIMITED|Cognite|PromptEMR|Wealthsimple)
+bokeh==2.4.2 (missing libs list)
+bokeh==2.4.3 (Canva)
+zstandard==0.23.0 (Canva)
+watchfiles==0.24.0 (Canva first req)
+watchfiles==0.21.0 (Canva)
+watchfiles==0.20.0 (EverBright / NextEra)
+watchfiles==0.22.0 (EverBright / NextEra)
+watchfiles==0.19.0 (Strider-Intel)
+(edited)
+
+
+Dann Frazier
+  6:45 AM
+As a reminder, I'm out this morning - and now maybe longer. Have to drive to Boulder for an eye specialist appt, and our first snow storm of the season blew in overnight, so driving will be slow.
+Yesterday:
+Mostly manually bootstrapping our dev gen-1 builds to get to the point that I can build other things. I tried some other suggested hacks, like trying to use the gen-0 build-deps, but doing so seemed to prevent any build stages from being generated.
+BLOCKED: I need the specific versions of proprietary deps for the torch builds in dev (and I'll need their counterparts for prod, which are likely slightly different) sync'd over. @wesley.wiedenmeier could you help w/ that?
+Not a blocker atm, but there's a dependency cycle that's preventing me from building a modern hatchling. It's calver, which is its own build-dep in every version. How do we break cycles like that?
+Today:
+Achieve a dev build of torchvision & test it
+Continue working on a dev build of triton 3.3.1 (missing deps)
+In lieu of full testing of torch on ARM, compare the configuration settings between our build and upstream and validate parity.
+:eyes:
+1
+
+
+
+
+4 replies
+Last reply 5 days agoView thread
+
+
+Lyndsea Warkenthien
+  7:24 AM
+Yesterday:
+Got Claude code set up - fancy
+Reviewed Missing Python Coverage Data
+set up a local project to start interacting with the GitHub API :crying-sunglasses:
+Product Team Meeting with updates
+Product Org Work: Q4 goals updates and timelines
+Today:
+requesting a FGPAT so that I can interact with the chainguard-dev repo via the GitHub API (would take any pointers on this, I have see @Hector (no rush I know you are ill) requesting FGPATs in the past in the #ask-security channel)
+TODO - set up Linear project process for the RCA project for Product Org
+TODO - set up meetings with intake process stake holders on Sales Engineering side
+
+
+
+Lyndsea Warkenthien
+hi! curious about the correct security process for a project I'm working on. I'd like to interact with a project in located in the repo "chainguard-dev/Projects/Libraries Requests" via the GitHub API. From my research you can't interact with the GitHub Project board and data to include issues and their meta data simply from cloning the repo. "GitHub Projects, Issues, and other GitHub-specific features are stored in GitHub's database, not in the Git repository itself. " This leads me to believe I'll need to request a FGPAT and following the directions on the wiki it states i should "request a token through the GitHub UI". Just checking if this is still true, and also asking where in the UI I… Show more
+Posted in ask-security | Dec 3rd | View message
+
+
+Pawel Palucha
+  7:24 AM
+I'm waiting for reviews for rebuidler-api PR + dev infra fixes
+In the meantime I built some packages:
+Tried daft - but it's causing segfault in test
+nose
+elasticsearch6
+boto
+rsa 4.9.1
+hypothesis
+
+
+
+
+7 replies
+Last reply 4 days agoView thread
+
+
+Arkadiusz Czajkowski
+  7:30 AM
+Today:
+working on coverage increase for DataHub (56% - 3% :chart_with_upwards_trend:)
+com.typesafe.play:play-akka-http-server_2.13:2.8.22 - :green-circle-check: builded
+implemented SBT handling fixes
+https://github.com/chainguard-dev/ecosystems-java-rebuilder/pull/650
+io.ebean:ebean-agent:15.5.2 - :green-circle-check: builded
+seems needs simillar. handling as io.ebean:ebean:15.5.2
+working on ensuring above
+https://github.com/chainguard-dev/ecosystems-java-rebuilder/pull/651
+https://github.com/chainguard-dev/ecosystems-packages/commit/83182d5808a2640afc3f92f1c049d64faefb450a
+com.typesafe.play:twirl-parser_2.13:1.5.1 - :green-circle-check: builded
+New customer requests
+DWP
+cleaned up customer provided list
+prepared coverage SQL
+currently it's 30,83%
+submitted batch rebuild
+new required freatures identified for Java Rebuilder
+https://github.com/chainguard-dev/internal-dev/issues/24602
+(edited)
+
+
+Wesley Wiedenmeier
+  7:53 AM
+Yesterday:
+Spent some time thinking about the fixer agent vs claude code, identified several features claude code has that the fixer agent doesn't yet have, which I believe will make the fixer agent unable to handle many of the more common build fixes
+Started working on collecting test data for evaluating fixer approaches
+Started on eval harness for claude code based package fixer, so that we can get a baseline of its performance
+Finished up work from the night before getting the prompts & extra context doc in place for the fixer agent
+Experimented some with the fixer agent but so far no luck - Spits out valid package configs but they don't actually fix any build issues. Messed with prompts some but so far have not been able to get this to work, suspect it will be a while before the fixer agent approach catches up with what we already have for claude code
+Meetings, etc
+Today:
+Help Dann get some additional proprietary build deps in place
+Get a small, but high quality first set of eval data in place for fixer
+Get evals working for the claude code based approach and measure performance
+Think about short term options for automation around the claude code based fixer approach
+Catch up on making tickets, etc
+
+
+Benedikt Ritter
+  7:55 AM
+went back to the PR about old Gradle versions that I submitted yesterday and addressed some comments
+Caught up with Arak
+Triggered rebuilds of some libraries that I fixed Monday for Method Security
+
+
+Arkadiusz Czajkowski
+  7:23 AM
+Today:
+some small fixes in builder around SBT https://github.com/chainguard-dev/ecosystems-java-rebuilder/pull/655
+use cross scala builds trigger by default
+order deployable so POM's land at the end. We can use them for coverage check. If POM is in DB it means all other files where successfully deployed.
+review of latest @benedikt.ritter PR around keeping heavy tasks outside of DB transactions
+working on coverage
+Platform28
+manual clean up of requested libraries files
+initial coverage 19.8%
+batch rebuild triggered
+Canva
+manual clean up of requested libraries files
+initial coverage 20.61%
+batch rebuild triggered
+
+
+Benedikt Ritter
+  7:27 AM
+Today:
+Wrote some issues and asked for clarification of priorities, see https://chainguard-dev.slack.com/archives/C0962EGMS3F/p1764842511696349
+Discussed with Arak how to lift out heavy operations out of DB transactions. Went back to the drawing board but have a clear idea what to do now
+Looked into GEICO coverage again because they are on top of the priority list. Checked the micrometer project and figured out why it's not building.
+Also noticed that provenance generation for Gradle builds will need much more work to get it correct. Described the issue in https://github.com/chainguard-dev/internal-dev/issues/24642 Currently I don't have a good idea how to solve this across a wide range of Gradle versions. I need to think about this a little bit.
+
+
+
+Benedikt Ritter
+@Dan Ryan @Chris Armstrong We identified a few systematic issues in the java rebuilder that need priotization, especially in the light of five P1 customer requests being on our plate right now (https://github.com/orgs/chainguard-dev/projects/142/views/4):
+Rebuilder generate incomplete provenance (https://github.com/chainguard-dev/internal-dev/issues/24632): We've discussed this with ProdSec and it seems to be required to do this. Stopping to produce incomplete provenance and failing instead is easy, probablye a one line change. The question is however whether this requires a gen-2 rebuild, which is a completely different effort.
+Rebuilder does not respect build tool version (https://github.com/chainguard-dev/internal-dev/issues/24577): The rebuilder currently uses the public Chainguard registry, but that only has the latest versions of Ant, Maven, Gradle, and sbt. The la… Show more
+Thread in commit-to-libs | Dec 4th | View message
+#24642 Java: dependency extraction should work for Gradle multi-module projects
+### Rationale
+Currently dependency extraction fails for Gradle multi-module projects, or if it succeeds it produces incorrect results.
+Usually when a task is requested on the command line without colon, e.g. ./gradlew test instead of ./gradlew :test Gradle will search for all tasks of that name in any subprojects and execute them. The dependencies task behaves differently though. It when executing ./gradlew dependencies --configuration runtimeClasspath it only executes for the root project. Furthermore this only works if the root project has the java plugin applied, since that plugin contributes the runtimeClasspath configuration. Typically multi-module projects don't apply the java plugin bec… Show more
+<https://github.com/chainguard-dev/internal-dev|chainguard-dev/internal-dev>chainguard-dev/internal-dev | Dec 4th | Added by GitHub
+
+
+Pawel Palucha
+  8:27 AM
+Created PR for the last piece of remaining customer requests functionality for Rebuilder API - cron for re-checking coverage and refresh API endpoint - waiting for review
+Was checking invalidate endpoint after dev-eco has been fixed - but it doesn't work, will need to debug permissions issue
+
+
+Sam Dacanay
+  8:59 AM
+mon - thurs:
+alf3 customer submissions for js (lots)
+improvements to alf3
+preparation on infra side for alf3 workflow
+java pr reviews
+chainctl libraries verify reviews
+
+
+Dann Frazier
+  10:32 AM
+Yesterday:
+Continuing to iterate on populating build-deps in dev. Got enough for torchvision to build now - and it does - but it hasn't published because the test is a placeholder that fails.
+Also iterating on populating build-deps for triton 3.3.1 in dev. If that's not complete, it's very close (direct deps are available, but their dependency chains may not all be there yet)
+Today:
+torchvision QA, building triton 3.3.1.
+
+
+Benedikt Ritter
+  8:00 AM
+Today:
+Spend most of the day on the second iteration of https://github.com/chainguard-dev/ecosystems-java-rebuilder/pull/656 which is now ready
+Started thinking about how to solve the provenance situation that we've been discussing here for Gradle multi module builds. Wrote down some thoughts here: https://github.com/chainguard-dev/internal-dev/issues/24642#issuecomment-3617427660
+
+
+
+Benedikt Ritter
+@Dan Ryan @Chris Armstrong We identified a few systematic issues in the java rebuilder that need priotization, especially in the light of five P1 customer requests being on our plate right now (https://github.com/orgs/chainguard-dev/projects/142/views/4):
+Rebuilder generate incomplete provenance (https://github.com/chainguard-dev/internal-dev/issues/24632): We've discussed this with ProdSec and it seems to be required to do this. Stopping to produce incomplete provenance and failing instead is easy, probablye a one line change. The question is however whether this requires a gen-2 rebuild, which is a completely different effort.
+Rebuilder does not respect build tool version (https://github.com/chainguard-dev/internal-dev/issues/24577): The rebuilder currently uses the public Chainguard registry, but that only has the latest versions of Ant, Maven, Gradle, and sbt. The la… Show more
+Thread in commit-to-libs | Dec 4th | View message
+#656 fix: lift expensive download operations out of transaction context
+<https://github.com/chainguard-dev/ecosystems-java-rebuilder|chainguard-dev/ecosystems-java-rebuilder>chainguard-dev/ecosystems-java-rebuilder | Dec 4th | Added by GitHub
+Comment on #24642 Java: dependency extraction should work for Gradle multi-module projects
+<https://github.com/chainguard-dev/internal-dev|chainguard-dev/internal-dev>chainguard-dev/internal-dev | Dec 5th | Added by GitHub
+:ack:
+1
+
+
+
+Arkadiusz Czajkowski
+  9:35 AM
+Today:
+working on coverage
+Cognite :chart_with_upwards_trend: 1%
+Geico :chart_with_upwards_trend: 1%
+DWP :chart_with_upwards_trend: 3%
+Nasdaq/Verafin :chart_with_upwards_trend: 0.2%
+Salesforce :chart_with_upwards_trend: 0.2%
+Canva :chart_with_upwards_trend: 26.5%
+working on
+older version of Apache Camel
+Apache Kafka
+config router allowing to build more projects
+
+
+
+
+7 replies
+Last reply 3 days agoView thread
+
+
+Sergio Schvezov
+:desert_island:  3:13 PM
+Wednesday
+CLAUDE.md to now more about config layout with more examples and guidelines on version ranges docs: Document version-range config file organization rules #741
+Reviews
+feat(rebuilder-api): Add automatic build triggering for missing packages mono#29353
+Configs
+PRs
+dspy-ai==3.0.4 (Canva): fix(dspy,dspy-ai): use correct commits and patch versions for 3.0.4 #730
+jiwer (Canva): feat: config for jiwer #739
+outlines-core < 1.0.0 (Canva): feat: Add build config for outlines-core versions <1.0.0 #742
+soundfile (Canva): feat: generic config for soundfile #744
+Thursday
+After working on soundfile==0.12.0 for Canva I noticed 0.13.0 and 0.13.1 are being served (consumed binaries) so decided to give priority to:
+https://linear.app/chainguard/issue/ECO-18/block-wheels-that-have-binaries-we-did-not-build
+https://linear.app/chainguard/issue/ECO-19/libraries-specific-elf-notes
+feat: write Chainguard ELF notes ecosystems-wheel-rebuilder#817
+Configs
+Backfilled
+soundfile==0.12.0 (Canva)
+outlines-core==0.2.10 (Canva)
+types-aiobotocore-lambda==2.23.2 (Canva)
+Friday
+Canva is at 85% with the baseline requirements I have been working with
+Reviews:
+https://github.com/chainguard-dev/mono/pull/29417
+For ECO-19:
+openssf-compiler-options: additional include path for libraries wolfi-dev/os#74814
+Reworked PR for testing
+Configs
+PRs:
+fix soundfile: fix(soundfile): correct filepath for libsnd and COPYING #751
+sentencepiece (Canva): feat(sentencepiece): requires cmake<4 #752
+xgrammar=0.21.1 (Canva) fix: Include genson.schema subpackage in genson 1.3.0 build #757
+Backfilled:
+sentencepiece==0.2.0 (Canva)
+choreographer==1.1.1 (Canva)
+genson==1.3.0 (Canva)
+xgrammar==0.21.1 (Canva)
+
+
+Pawel Palucha
+  7:31 AM
+Created PRs to deploy rebuilder-api to prod ready, waiting for review/approval
+Created PR to add auditing requests to rebuilder-api: https://github.com/chainguard-dev/mono/pull/29531
+Created PR with script for invaliding artifacts: https://github.com/chainguard-dev/ecosystems-wheel-rebuilder/pull/818
+
+
+Dann Frazier
+  7:47 AM
+Thursday/Friday (tried to send this at EOD Friday, but slack was having issues)
+TLDR; torchvision submitted to prod, but failed because we have an 8 hour timeout, and tests are only at ~70% by then. Will  override timeout & resubmit. Also need to update the config to ignore some expected failures.
+I had torchvision building in dev, and was working on getting the test suite enabled. That had hiccups:
+dev lacked a lot of deps required for testing that I needed to backfill
+dev doesn't have cp310 torch builds, those needed backfilling, and they also lacked deps
+now that ^ those are squared away, the vision tests fail because the torch build is so old it lacks numpy support.
+UPDATE: i resubmitted torch 2.8.0 builds to dev, which backfilled the cp310 versions that didn't yet exist, using the config w/ working numpy. Those tests now proceed, but timeout.
+I decided to move on to prod because 1) either the tests pass, which means I'm happy for them to release or 2) they fail and I can debug real issues instead of dev-specific ones:
+but prod isn't installing proprietary deps
+UPDATE: figured that out, tests now start in prod, but timeout after 8 hours (~70%). Looks like that's a workflow config that I can tweak locally, so I'll bump it and resubmit.
+:thankyou2:
+1
+
+
+
+Arkadiusz Czajkowski
+  7:55 AM
+today:
+working on config router
+
+
+Wesley Wiedenmeier
+  9:43 AM
+Previous:
+Worked on design doc for running test builds in dev-eco, responded to comments, etc. Still have a bit of work to do on this
+Did a few CVE remediations to keep delivery moving forward there
+Did a full test run of claude fixing tests using the ~20 test cases I have in place. Claude was able to fix all of these except one case where the test case itself was wrong, so will iterate on tests
+Today:
+Triaged CVE remediation for new prospect scality
+Two remediations for this new prospect
+Wrapped up a remediation started on friday
+Will finish design doc for testing in dev-eco
+Will improve test cases for claude based fixer
+Will start on implementation of testing in dev-eco
+
+
+2 replies
+Last reply today at 11:35 AMView thread
+
+
+Jason Hall
+  10:34 AM
+found out about this channel :rolling_on_the_floor_laughing:
+talked more about serve-js, :claude: making progress on that as we speak
+spruced up the pip cred helper, getting that ready to make public; I'll write docs/blog post this evening most likely
+:eyes:
+1
+
+
+
+
+
+8 replies
+Last reply today at 11:39 AMView thread
+
+
+Benedikt Ritter
+  11:22 AM
+Today:
+finalized the PR to lift expensive IO operations out of database transaction context
+Started work on improving the way we generate provenance, in particular for Gradle multi module projects.
