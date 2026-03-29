@@ -35,4 +35,5 @@ gosec.sarif
 
 # Build artifacts
 dist/
-kora
+/kora
+.worktrees/

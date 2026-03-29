@@ -1,223 +1,64 @@
 # Kora
 
-CLI tool that aggregates GitHub activity into a prioritized morning digest.
+Single-purpose CLI that gathers work activity from GitHub, Gmail, Calendar, and Linear into structured JSON. Designed as a data layer for AI-powered work automation — Claude (or any consumer) synthesizes the raw data into morning briefs, weekly digests, and status reports.
 
-## Features
+## Prerequisites
 
-- **GitHub**: PR review requests, PR mentions, issue mentions, issue assignments, authored PRs, closed/merged PRs, PR comment @mentions, watched repo merges
-- **Output formats**: JSON, JSON (pretty-printed), text
-- **Authentication**: GitHub via `gh` CLI delegation
-- **Concurrent fetching**: Datasources run in parallel with graceful failure handling
-- **EFA governance**: AI-friendly architecture with explicit ground truth specifications
+- Go 1.25+
+- [`gh`](https://cli.github.com/) — GitHub CLI
+- [`gws`](https://github.com/googleworkspace/cli) — Google Workspace CLI
+- [`linear`](https://github.com/schpet/linear-cli) — Linear CLI
 
-## Installation
+Each tool must be installed and authenticated before running Kora.
 
-```bash
-make build
-make install
-```
-
-Installs to `~/.local/bin/kora`. Ensure `~/.local/bin` is in your PATH.
-
-### MCP Integration (Claude Code)
-
-Install Kora as an MCP tool so Claude Code can invoke it directly:
+## Install
 
 ```bash
-make install-mcp
+make install  # builds and installs to ~/.local/bin
 ```
-
-This creates a project-scoped `.mcp.json` configuration. Claude Code can then invoke kora digest as a tool:
-
-```
-You: "What's in my digest?"
-Claude: *invokes kora-digest tool* "You have 3 PRs requiring review..."
-```
-
-The MCP tool uses `--format json` for structured output and defaults to a 16-hour window. Customize by editing `.mcp.json`.
-
-## Quick Start
-
-### 1. Authenticate GitHub
-
-```bash
-gh auth login
-```
-
-Kora uses `gh` CLI delegation, never sees your GitHub token.
-
-### 2. Run Digest
-
-```bash
-# Fetch overnight activity (16 hour window)
-kora digest --since 16h
-
-# Fetch last 8 hours
-kora digest --since 8h
-
-# Output formats
-kora digest --since 16h --format json
-kora digest --since 16h --format json-pretty
-kora digest --since 16h --format text  # default
-```
-
-## Configuration
-
-Create `~/.kora/config.yaml` to customize behavior:
-
-```yaml
-datasources:
-  github:
-    enabled: true
-    orgs:
-      - my-org
-    # Track merged PRs in repos you care about (even if not directly involved)
-    watched_repos:
-      - kubernetes/kubernetes
-      - golang/go
-
-digest:
-  window: 16h
-  timezone: Local
-  format: text
-
-security:
-  redact_credentials: true
-  datasource_timeout: 30s
-```
-
-See `configs/kora.yaml.example` for full configuration options.
 
 ## Usage
 
 ```bash
-# Basic digest with default window (16h)
-kora digest
-
-# Custom time window
-kora digest --since 8h
-kora digest --since 24h
-
-# Specific output format
-kora digest --format json
-kora digest --format json-pretty
-kora digest --format text
-
-# Custom config file
-kora digest --config ~/custom-kora.yaml
-
-# Suggest repos to watch based on your activity
-kora suggest-repos
-kora suggest-repos --days 90 --top 5
-
-# Version info
-kora version
+kora --since 8h    # activity from last 8 hours
+kora --since 168h  # activity from last 7 days (week)
 ```
 
-## Output Formats
+Output is JSON to stdout:
 
-### text (default)
-Human-readable text format optimized for terminal display:
-```
-Work Digest (16 hours)
-3 events requiring action
-
-[PRIORITY 2 - HIGH] Review requested: Add secure rebuild for core-java
-  Source: github
-  URL: https://github.com/org/repo/pull/123
-  Author: janedev
-  Time: 2025-12-06 07:00:00
-  Requires action: yes
-...
-```
-
-### json
-Compact JSON for programmatic consumption:
-```json
-{"events":[{"type":"pr_review","title":"Review requested: Add secure rebuild","source":"github",...}],"stats":{...}}
-```
-
-### json-pretty
-Indented JSON for readability:
 ```json
 {
-  "events": [
-    {
-      "type": "pr_review",
-      "title": "Review requested: Add secure rebuild",
-      ...
-    }
-  ],
-  ...
+  "fetched_at": "2026-03-29T08:00:00Z",
+  "since": "8h0m0s",
+  "sources": {
+    "github": { "review_requests": [...], "authored_prs": [...], ... },
+    "gmail": { "messages": [...] },
+    "calendar": { "events": {...} },
+    "linear": { "assigned_issues": {...}, "cycles": {...}, ... }
+  }
 }
 ```
 
+Exits 0 on success, 1 if any source fails. Errors go to stderr as JSON.
+
 ## Development
 
-### Build
-
 ```bash
-make build        # Build binary to bin/kora
-make install      # Build and install to ~/.local/bin
+make test              # unit tests
+make test-integration  # real CLI tools (requires auth)
+make test-e2e          # compiled binary tests
+make lint              # golangci-lint
 ```
 
-### Test
+## How It Works
 
-```bash
-make test                  # Unit tests
-make test-integration      # Integration tests (requires auth)
-make test-coverage         # Coverage report
-```
+Kora delegates to existing CLI tools rather than reimplementing API clients:
 
-### Lint
+| Source | CLI Tool | Data |
+|--------|----------|------|
+| GitHub | `gh` | PRs to review, authored PRs, assigned issues |
+| Gmail | `gws` | Unread messages with metadata |
+| Calendar | `gws` | Events in time window |
+| Linear | `linear` + `linear api` | Assigned issues, cycles, comments, completions |
 
-```bash
-make lint          # golangci-lint + gosec
-make security-scan # gosec only
-```
-
-### Clean
-
-```bash
-make clean         # Remove build artifacts
-```
-
-## Project Structure
-
-```
-cmd/kora/           # CLI entry point
-internal/
-  auth/             # Authentication providers (GitHub gh CLI)
-  datasources/      # Event fetching (GitHub)
-  models/           # Core Event model
-  output/           # Formatters (JSON, text)
-  config/           # YAML configuration
-pkg/                # Shared utilities
-specs/
-  efas/             # Explainer For Agents (ground truth specs)
-tests/integration/  # Integration tests
-```
-
-## Documentation
-
-- `specs/architecture.md` - System architecture and data flow
-- `specs/datasources.md` - How to add new datasources
-- `specs/efas/` - Ground truth specifications for AI agents
-- `SECURITY.md` - Security policies and credential handling
-
-## Requirements
-
-- Go 1.25+
-- macOS (for Keychain integration in future datasources)
-- `gh` CLI authenticated (`gh auth login`)
-
-## Security
-
-- GitHub auth: CLI delegation via `gh` - Kora never sees tokens
-- Credentials always redacted in logs
-- TLS verification always enabled
-- See `SECURITY.md` for details
-
-## License
-
-Private - personal use only
+All sources are fetched in parallel. Each source runs its own sub-queries in parallel too.
