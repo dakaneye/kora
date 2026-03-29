@@ -35,7 +35,7 @@ func Load() (Config, error) {
 	}
 
 	path := filepath.Join(home, ".kora.yaml")
-	data, err := os.ReadFile(path) //nolint:gosec // G304: path is always ~/.kora.yaml, not user-controlled
+	data, err := os.ReadFile(path) // #nosec G304 -- path is always ~/.kora.yaml, not user-controlled
 	if err != nil {
 		if os.IsNotExist(err) {
 			return Config{}, nil

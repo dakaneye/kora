@@ -1,5 +1,11 @@
 # Kora
 
+[![CI](https://github.com/dakaneye/kora/actions/workflows/ci.yml/badge.svg)](https://github.com/dakaneye/kora/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/dakaneye/kora)](https://goreportcard.com/report/github.com/dakaneye/kora)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/dakaneye/kora)](https://go.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/dakaneye/kora)](https://github.com/dakaneye/kora/releases)
+
 Single-purpose CLI that gathers work activity from GitHub, Gmail, Calendar, and Linear into structured JSON. Designed as a data layer for AI-powered work automation — Claude (or any consumer) synthesizes the raw data into morning briefs, weekly digests, and status reports.
 
 ## Prerequisites
