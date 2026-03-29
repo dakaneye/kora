@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 )
 
@@ -19,6 +20,7 @@ type Result struct {
 // Runner executes subprocesses.
 type Runner interface {
 	Run(ctx context.Context, name string, args ...string) (Result, error)
+	RunInteractive(ctx context.Context, name string, args ...string) error
 }
 
 // DefaultRunner delegates to the real exec.CommandContext.
@@ -27,6 +29,11 @@ type DefaultRunner struct{}
 // Run executes a command via the operating system.
 func (d *DefaultRunner) Run(ctx context.Context, name string, args ...string) (Result, error) {
 	return Run(ctx, name, args...)
+}
+
+// RunInteractive executes a command with the terminal attached.
+func (d *DefaultRunner) RunInteractive(ctx context.Context, name string, args ...string) error {
+	return RunInteractive(ctx, name, args...)
 }
 
 // Run executes a command with the given arguments and returns the captured output.
@@ -57,4 +64,18 @@ func Run(ctx context.Context, name string, args ...string) (Result, error) {
 	}
 
 	return result, nil
+}
+
+// RunInteractive executes a command with stdin/stdout/stderr connected to the
+// terminal so the user can interact with prompts (e.g. auth login flows).
+func RunInteractive(ctx context.Context, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: subprocess execution is this package's purpose
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("exec %s: %w", name, err)
+	}
+	return nil
 }

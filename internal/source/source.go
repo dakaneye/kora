@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -65,12 +66,19 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 	}
 
 	// Phase 1: Check auth in parallel
+	fmt.Fprintf(os.Stderr, "checking auth for %d sources...\n", len(sources))
 	authFailed := checkAuthParallel(ctx, sources)
 
 	// Phase 2: Refresh failed sources sequentially
 	if len(authFailed) > 0 {
+		names := make([]string, len(authFailed))
+		for i, s := range authFailed {
+			names[i] = s.Name()
+		}
+		fmt.Fprintf(os.Stderr, "auth failed for: %s — attempting refresh\n", strings.Join(names, ", "))
 		for _, s := range authFailed {
 			if err := s.RefreshAuth(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: refresh failed: %v\n", s.Name(), err)
 				continue
 			}
 		}
@@ -90,6 +98,7 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 	}
 
 	// Phase 4: Fetch all in parallel
+	fmt.Fprintf(os.Stderr, "fetching activity from %d sources...\n", len(sources))
 	var mu sync.Mutex
 	var fetchErrors []FetchError
 

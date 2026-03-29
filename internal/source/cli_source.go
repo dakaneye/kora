@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/dakaneye/kora/internal/exec"
@@ -30,8 +32,8 @@ func (s *cliSource) CheckAuth(ctx context.Context) error {
 }
 
 func (s *cliSource) RefreshAuth(ctx context.Context) error {
-	_, err := s.runner.Run(ctx, s.cli, s.refreshArgs...)
-	if err != nil {
+	fmt.Fprintf(os.Stderr, "%s: refreshing auth via %s %s\n", s.name, s.cli, strings.Join(s.refreshArgs, " "))
+	if err := s.runner.RunInteractive(ctx, s.cli, s.refreshArgs...); err != nil {
 		return fmt.Errorf("%s auth refresh: %w", s.name, err)
 	}
 	return nil

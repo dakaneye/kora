@@ -46,3 +46,16 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (exec
 	}
 	return exec.Result{ExitCode: 1}, errors.New("fakeRunner: no match for " + cmd)
 }
+
+func (f *fakeRunner) RunInteractive(ctx context.Context, name string, args ...string) error {
+	cmd := name + " " + strings.Join(args, " ")
+	for prefix, fr := range f.results {
+		if strings.HasPrefix(cmd, prefix) {
+			if fr.err != "" {
+				return errors.New(fr.err)
+			}
+			return nil
+		}
+	}
+	return errors.New("fakeRunner: no match for " + cmd)
+}
