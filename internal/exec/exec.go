@@ -40,7 +40,7 @@ func (d *DefaultRunner) RunInteractive(ctx context.Context, name string, args ..
 // Returns a non-nil error if the command fails or the context is canceled.
 // The Result is always populated (even on error) so callers can inspect stderr.
 func Run(ctx context.Context, name string, args ...string) (Result, error) {
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: subprocess execution is this package's purpose
+	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- subprocess execution is this package's purpose
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -69,7 +69,7 @@ func Run(ctx context.Context, name string, args ...string) (Result, error) {
 // RunInteractive executes a command with stdin/stdout/stderr connected to the
 // terminal so the user can interact with prompts (e.g. auth login flows).
 func RunInteractive(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: subprocess execution is this package's purpose
+	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- subprocess execution is this package's purpose
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
