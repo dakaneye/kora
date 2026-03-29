@@ -2,6 +2,7 @@ package source_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,22 @@ func TestCalendar_RefreshAuth(t *testing.T) {
 	cal := source.NewCalendar(runner)
 	if err := cal.RefreshAuth(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCalendar_Fetch_MalformedJSON(t *testing.T) {
+	runner := &fakeRunner{
+		results: map[string]fakeResult{
+			"gws calendar events list": {stdout: `{not json`},
+		},
+	}
+	cal := source.NewCalendar(runner)
+	_, err := cal.Fetch(t.Context(), 8*time.Hour)
+	if err == nil {
+		t.Fatal("expected error for malformed events response")
+	}
+	if !strings.Contains(err.Error(), "calendar parse") {
+		t.Errorf("error should mention calendar parse, got: %v", err)
 	}
 }
 

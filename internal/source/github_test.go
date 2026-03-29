@@ -2,6 +2,7 @@ package source_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,5 +77,26 @@ func TestGitHub_RefreshAuth(t *testing.T) {
 	gh := source.NewGitHub(runner)
 	if err := gh.RefreshAuth(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGitHub_Fetch_PartialSubQueryFailure(t *testing.T) {
+	prs := `[{"number":1,"title":"fix bug"}]`
+	issues := `[{"number":2,"title":"add feature"}]`
+	runner := &fakeRunner{
+		results: map[string]fakeResult{
+			"gh search prs --review-requested=@me": {stdout: prs},
+			"gh search prs --author=@me":           {stdout: prs},
+			"gh search issues --assignee=@me":      {stdout: issues},
+			"gh search prs --commenter=@me":        {err: "rate limit exceeded"},
+		},
+	}
+	gh := source.NewGitHub(runner)
+	_, err := gh.Fetch(t.Context(), 8*time.Hour)
+	if err == nil {
+		t.Fatal("expected error when one sub-query fails")
+	}
+	if !strings.Contains(err.Error(), "commented_prs") {
+		t.Errorf("error should mention failing sub-query key, got: %v", err)
 	}
 }

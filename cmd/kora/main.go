@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dakaneye/kora/internal/source"
@@ -28,7 +30,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	since, err := time.ParseDuration(*sinceStr)
+	since, err := parseSince(*sinceStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid --since value %q: %v\n", *sinceStr, err)
 		os.Exit(1)
@@ -58,4 +60,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "encoding output: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// parseSince parses a duration string, supporting "d" suffix for days
+// in addition to standard time.ParseDuration units.
+func parseSince(s string) (time.Duration, error) {
+	if strings.HasSuffix(s, "d") {
+		days := strings.TrimSuffix(s, "d")
+		n, err := strconv.Atoi(days)
+		if err != nil {
+			return 0, fmt.Errorf("invalid days value %q: %w", s, err)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
 }

@@ -2,6 +2,7 @@ package source_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,24 @@ func TestLinear_RefreshAuth(t *testing.T) {
 	lin := source.NewLinear(runner)
 	if err := lin.RefreshAuth(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLinear_Fetch_PartialSubQueryFailure(t *testing.T) {
+	// fakeRunner returns error for any "linear api" call, simulating
+	// a partial failure where the CLI tool is reachable but queries fail.
+	runner := &fakeRunner{
+		results: map[string]fakeResult{
+			"linear api": {err: "graphql error: rate limited"},
+		},
+	}
+	lin := source.NewLinear(runner)
+	_, err := lin.Fetch(t.Context(), 7*24*time.Hour)
+	if err == nil {
+		t.Fatal("expected error when sub-queries fail")
+	}
+	if !strings.Contains(err.Error(), "linear fetch") {
+		t.Errorf("error should mention linear fetch, got: %v", err)
 	}
 }
 

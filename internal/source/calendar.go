@@ -11,7 +11,7 @@ import (
 
 // Calendar fetches calendar events via the gws CLI.
 type Calendar struct {
-	runner exec.Runner
+	cliSource
 }
 
 // NewCalendar returns a Calendar source. If runner is nil, a real subprocess runner is used.
@@ -19,34 +19,28 @@ func NewCalendar(runner exec.Runner) *Calendar {
 	if runner == nil {
 		runner = &exec.DefaultRunner{}
 	}
-	return &Calendar{runner: runner}
-}
-
-func (c *Calendar) Name() string { return "calendar" }
-
-func (c *Calendar) CheckAuth(ctx context.Context) error {
-	_, err := c.runner.Run(ctx, "gws", "auth", "status")
-	if err != nil {
-		return fmt.Errorf("calendar auth check: %w", err)
-	}
-	return nil
-}
-
-func (c *Calendar) RefreshAuth(ctx context.Context) error {
-	_, err := c.runner.Run(ctx, "gws", "auth", "login")
-	if err != nil {
-		return fmt.Errorf("calendar auth refresh: %w", err)
-	}
-	return nil
+	return &Calendar{cliSource: cliSource{
+		name:        "calendar",
+		runner:      runner,
+		cli:         "gws",
+		checkArgs:   []string{"auth", "status"},
+		refreshArgs: []string{"auth", "login"},
+	}}
 }
 
 func (c *Calendar) Fetch(ctx context.Context, since time.Duration) (json.RawMessage, error) {
 	now := time.Now().UTC()
 	timeMin := now.Add(-since).Format(time.RFC3339)
 	timeMax := now.Format(time.RFC3339)
-	params := fmt.Sprintf(`{"calendarId":"primary","timeMin":"%s","timeMax":"%s","singleEvents":true,"orderBy":"startTime"}`, timeMin, timeMax)
+	params, _ := json.Marshal(map[string]any{
+		"calendarId":   "primary",
+		"timeMin":      timeMin,
+		"timeMax":      timeMax,
+		"singleEvents": true,
+		"orderBy":      "startTime",
+	})
 
-	result, err := c.runner.Run(ctx, "gws", "calendar", "events", "list", "--params", params)
+	result, err := c.runner.Run(ctx, "gws", "calendar", "events", "list", "--params", string(params))
 	if err != nil {
 		return nil, fmt.Errorf("calendar fetch: %w", err)
 	}

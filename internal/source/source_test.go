@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,5 +131,42 @@ func TestRun_EmptySources(t *testing.T) {
 	}
 	if len(result.Sources) != 0 {
 		t.Errorf("expected empty sources, got %d", len(result.Sources))
+	}
+}
+
+func TestRunError_Error(t *testing.T) {
+	runErr := &source.RunError{
+		Errors: []source.SourceError{
+			{Source: "github", Phase: "fetch", Err: "api timeout"},
+			{Source: "linear", Phase: "auth", Err: "token expired"},
+		},
+	}
+	got := runErr.Error()
+	if !strings.Contains(got, "github (fetch): api timeout") {
+		t.Errorf("error string missing github entry: %s", got)
+	}
+	if !strings.Contains(got, "linear (auth): token expired") {
+		t.Errorf("error string missing linear entry: %s", got)
+	}
+	if !strings.Contains(got, "; ") {
+		t.Errorf("error string missing separator: %s", got)
+	}
+}
+
+func TestRun_ContextCancellationDuringFetch(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // cancel immediately
+
+	sources := []source.Source{
+		&mockSource{name: "slow", fetchData: json.RawMessage(`{}`)},
+	}
+
+	_, err := source.Run(ctx, sources, 8*time.Hour)
+	// With a cancelled context, auth check or fetch should fail.
+	// We just verify it doesn't hang.
+	if err == nil {
+		// It's acceptable if the mock doesn't check ctx, but the test
+		// confirms no deadlock.
+		return
 	}
 }

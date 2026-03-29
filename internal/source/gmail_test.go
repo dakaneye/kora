@@ -2,6 +2,7 @@ package source_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,6 +78,22 @@ func TestGmail_Fetch_WithMessages(t *testing.T) {
 	}
 	if _, ok := result["messages"]; !ok {
 		t.Error("missing 'messages' key in output")
+	}
+}
+
+func TestGmail_Fetch_MalformedListJSON(t *testing.T) {
+	runner := &fakeRunner{
+		results: map[string]fakeResult{
+			"gws gmail users messages list": {stdout: `not valid json`},
+		},
+	}
+	gm := source.NewGmail(runner)
+	_, err := gm.Fetch(t.Context(), 8*time.Hour)
+	if err == nil {
+		t.Fatal("expected error for malformed list response")
+	}
+	if !strings.Contains(err.Error(), "gmail parse list") {
+		t.Errorf("error should mention parse list, got: %v", err)
 	}
 }
 

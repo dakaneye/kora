@@ -7,8 +7,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
 // Source gathers activity data from a single external service.
@@ -94,10 +92,12 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 	var mu sync.Mutex
 	var fetchErrors []SourceError
 
-	g, gctx := errgroup.WithContext(ctx)
+	var wg sync.WaitGroup
 	for _, s := range sources {
-		g.Go(func() error {
-			data, err := s.Fetch(gctx, since)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			data, err := s.Fetch(ctx, since)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -106,14 +106,12 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 					Phase:  "fetch",
 					Err:    err.Error(),
 				})
-				return err
+				return
 			}
 			result.Sources[s.Name()] = data
-			return nil
-		})
+		}()
 	}
-
-	_ = g.Wait()
+	wg.Wait()
 
 	if len(fetchErrors) > 0 {
 		return result, &RunError{Errors: fetchErrors}
