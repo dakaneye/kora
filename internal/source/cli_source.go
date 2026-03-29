@@ -26,8 +26,10 @@ func (s *cliSource) Name() string { return s.name }
 func (s *cliSource) CheckAuth(ctx context.Context) error {
 	_, err := s.runner.Run(ctx, s.cli, s.checkArgs...)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "  %s: not authenticated\n", s.name)
 		return fmt.Errorf("%s auth check: %w", s.name, err)
 	}
+	fmt.Fprintf(os.Stderr, "  %s: ok\n", s.name)
 	return nil
 }
 

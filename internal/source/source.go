@@ -66,8 +66,15 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 	}
 
 	// Phase 1: Check auth in parallel
-	fmt.Fprintf(os.Stderr, "checking auth for %d sources...\n", len(sources))
+	sourceNames := make([]string, len(sources))
+	for i, s := range sources {
+		sourceNames[i] = s.Name()
+	}
+	fmt.Fprintf(os.Stderr, "checking auth: %s\n", strings.Join(sourceNames, ", "))
 	authFailed := checkAuthParallel(ctx, sources)
+	if len(authFailed) == 0 {
+		fmt.Fprintf(os.Stderr, "all sources authenticated\n")
+	}
 
 	// Phase 2: Refresh failed sources sequentially
 	if len(authFailed) > 0 {
@@ -98,7 +105,7 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 	}
 
 	// Phase 4: Fetch all in parallel
-	fmt.Fprintf(os.Stderr, "fetching activity from %d sources...\n", len(sources))
+	fmt.Fprintf(os.Stderr, "fetching: %s (since %s)\n", strings.Join(sourceNames, ", "), since)
 	var mu sync.Mutex
 	var fetchErrors []FetchError
 
@@ -111,6 +118,7 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
+				fmt.Fprintf(os.Stderr, "  %s: failed (%v)\n", s.Name(), err)
 				fetchErrors = append(fetchErrors, FetchError{
 					Source: s.Name(),
 					Phase:  "fetch",
@@ -118,6 +126,7 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 				})
 				return
 			}
+			fmt.Fprintf(os.Stderr, "  %s: done (%d bytes)\n", s.Name(), len(data))
 			result.Sources[s.Name()] = data
 		}()
 	}
