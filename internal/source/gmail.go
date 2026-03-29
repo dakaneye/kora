@@ -68,7 +68,11 @@ func (g *Gmail) Fetch(ctx context.Context, since time.Duration) (json.RawMessage
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-sem }()
 
 			getParams, _ := json.Marshal(map[string]any{
