@@ -39,15 +39,15 @@ func (l *Linear) Fetch(ctx context.Context, since time.Duration) (json.RawMessag
 		},
 		{
 			key:  "cycles",
-			args: []string{"api", `{ teams { nodes { name key cycles(first: 5, orderBy: createdAt) { nodes { number name startsAt endsAt progress completedScopeCount scopeCount } } } } }`},
+			args: []string{"api", `{ teams { nodes { name key cycles(first: 5, orderBy: createdAt) { nodes { number name startsAt endsAt progress } } } } }`},
 		},
 		{
 			key:  "commented_issues",
-			args: []string{"api", fmt.Sprintf(`{ issueSearch(filter: { comments: { user: { isMe: { eq: true } }, updatedAt: { gte: "%s" } } }, first: 100) { nodes { identifier title state { name type } priority priorityLabel url updatedAt team { name key } } } }`, cutoff)}, //nolint:gocritic // GraphQL requires literal double quotes in query string
+			args: []string{"api", fmt.Sprintf(`{ issues(filter: { comments: { user: { isMe: { eq: true } }, updatedAt: { gte: "%s" } } }, first: 100) { nodes { identifier title state { name type } priority priorityLabel url updatedAt team { name key } } } }`, cutoff)}, //nolint:gocritic // GraphQL requires literal double quotes in query string
 		},
 		{
 			key:  "completed_issues",
-			args: []string{"api", fmt.Sprintf(`{ issueSearch(filter: { completedAt: { gte: "%s" }, assignee: { isMe: { eq: true } } }, first: 100) { nodes { identifier title state { name type } priority priorityLabel url updatedAt completedAt team { name key } project { name } } } }`, cutoff)}, //nolint:gocritic // GraphQL requires literal double quotes in query string
+			args: []string{"api", fmt.Sprintf(`{ issues(filter: { completedAt: { gte: "%s" }, assignee: { isMe: { eq: true } } }, first: 100) { nodes { identifier title state { name type } priority priorityLabel url updatedAt completedAt team { name key } project { name } } } }`, cutoff)}, //nolint:gocritic // GraphQL requires literal double quotes in query string
 		},
 	}
 
