@@ -19,6 +19,10 @@ func TestParseSince(t *testing.T) {
 		{"banana", 0, true},
 		{"xd", 0, true},
 		{"", 0, true},
+		{"-1h", 0, true},
+		{"-7d", 0, true},
+		{"0d", 0, false},
+		{"0h", 0, false},
 	}
 
 	for _, tt := range tests {

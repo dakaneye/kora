@@ -3,10 +3,22 @@ package source_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/dakaneye/kora/internal/exec"
 )
+
+func loadFixture(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("load fixture %s: %v", name, err)
+	}
+	return string(data)
+}
 
 type fakeResult struct {
 	stdout string

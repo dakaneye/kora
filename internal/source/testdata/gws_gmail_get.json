@@ -1,0 +1,15 @@
+{
+  "id": "18e4a2b3c4d5e6f7",
+  "threadId": "18e4a2b3c4d5e6f7",
+  "labelIds": ["INBOX", "UNREAD"],
+  "snippet": "Hey, wanted to follow up on the Q1 planning discussion...",
+  "payload": {
+    "headers": [
+      {"name": "From", "value": "Alice Smith <alice@example.com>"},
+      {"name": "Subject", "value": "Follow up on Q1 planning"},
+      {"name": "Date", "value": "Sat, 29 Mar 2026 08:15:00 +0000"}
+    ]
+  },
+  "sizeEstimate": 4521,
+  "internalDate": "1743235700000"
+}

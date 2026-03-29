@@ -153,6 +153,91 @@ func TestRunError_Error(t *testing.T) {
 	}
 }
 
+func TestRun_MultipleFetchFailures(t *testing.T) {
+	sources := []source.Source{
+		&mockSource{name: "alpha", fetchErr: errors.New("timeout")},
+		&mockSource{name: "beta", fetchErr: errors.New("rate limited")},
+		&mockSource{name: "gamma", fetchErr: errors.New("connection refused")},
+	}
+
+	_, err := source.Run(t.Context(), sources, 8*time.Hour)
+	if err == nil {
+		t.Fatal("expected error when multiple fetches fail")
+	}
+	var runErr *source.RunError
+	if !errors.As(err, &runErr) {
+		t.Fatalf("expected *RunError, got %T", err)
+	}
+	if len(runErr.Errors) != 3 {
+		t.Errorf("expected 3 source errors, got %d", len(runErr.Errors))
+	}
+	// Verify all sources are represented
+	names := make(map[string]bool)
+	for _, se := range runErr.Errors {
+		names[se.Source] = true
+		if se.Phase != "fetch" {
+			t.Errorf("expected phase 'fetch', got %q for source %s", se.Phase, se.Source)
+		}
+	}
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		if !names[name] {
+			t.Errorf("missing source %q in errors", name)
+		}
+	}
+}
+
+func TestRun_AuthLifecycle_AllSources(t *testing.T) {
+	tests := []struct {
+		name       string
+		authErr    error
+		refreshErr error
+		fetchData  json.RawMessage
+		fetchErr   error
+		wantErr    bool
+	}{
+		{
+			name:      "github-like: auth succeeds immediately",
+			fetchData: json.RawMessage(`{"prs":[]}`),
+		},
+		{
+			name:      "gmail-like: auth fails then refresh succeeds",
+			authErr:   errors.New("token expired"),
+			fetchData: json.RawMessage(`{"messages":[]}`),
+		},
+		{
+			name:       "calendar-like: auth fails and refresh fails",
+			authErr:    errors.New("no credentials"),
+			refreshErr: errors.New("browser required"),
+			wantErr:    true,
+		},
+		{
+			name:      "linear-like: auth succeeds but fetch fails",
+			fetchErr:  errors.New("graphql error"),
+			fetchData: json.RawMessage(`{}`),
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := &mockSource{
+				name:       tt.name,
+				authErr:    tt.authErr,
+				refreshErr: tt.refreshErr,
+				fetchData:  tt.fetchData,
+				fetchErr:   tt.fetchErr,
+			}
+			_, err := source.Run(t.Context(), []source.Source{src}, 8*time.Hour)
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestRun_ContextCancellationDuringFetch(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // cancel immediately

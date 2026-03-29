@@ -1,0 +1,24 @@
+[
+  {
+    "number": 42,
+    "title": "fix: resolve auth timeout on token refresh",
+    "url": "https://github.com/example/repo/pull/42",
+    "state": "open",
+    "updatedAt": "2026-03-29T06:01:47Z",
+    "createdAt": "2026-03-28T10:00:00Z",
+    "repository": {"name": "repo", "nameWithOwner": "example/repo"},
+    "author": {"login": "developer"},
+    "labels": [{"name": "bug"}]
+  },
+  {
+    "number": 87,
+    "title": "feat: add calendar source to kora digest",
+    "url": "https://github.com/example/repo/pull/87",
+    "state": "merged",
+    "updatedAt": "2026-03-28T22:15:00Z",
+    "createdAt": "2026-03-27T14:30:00Z",
+    "repository": {"name": "repo", "nameWithOwner": "example/repo"},
+    "author": {"login": "contributor"},
+    "labels": [{"name": "enhancement"}, {"name": "backend"}]
+  }
+]

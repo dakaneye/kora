@@ -8,19 +8,16 @@ import (
 	"os/exec"
 )
 
-// Result holds the output of a subprocess execution.
 type Result struct {
 	Stdout   string
 	Stderr   string
 	ExitCode int
 }
 
-// Runner abstracts subprocess execution for testing.
 type Runner interface {
 	Run(ctx context.Context, name string, args ...string) (Result, error)
 }
 
-// DefaultRunner uses real os/exec.
 type DefaultRunner struct{}
 
 func (d *DefaultRunner) Run(ctx context.Context, name string, args ...string) (Result, error) {

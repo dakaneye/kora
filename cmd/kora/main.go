@@ -71,7 +71,17 @@ func parseSince(s string) (time.Duration, error) {
 		if err != nil {
 			return 0, fmt.Errorf("invalid days value %q: %w", s, err)
 		}
+		if n < 0 {
+			return 0, fmt.Errorf("negative duration %q not allowed", s)
+		}
 		return time.Duration(n) * 24 * time.Hour, nil
 	}
-	return time.ParseDuration(s)
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("negative duration %q not allowed", s)
+	}
+	return d, nil
 }

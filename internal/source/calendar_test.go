@@ -68,6 +68,51 @@ func TestCalendar_Fetch_MalformedJSON(t *testing.T) {
 	}
 }
 
+func TestCalendar_Fetch_EmptyEvents(t *testing.T) {
+	emptyEvents := `{"kind":"calendar#events","summary":"primary","items":[]}`
+
+	runner := &fakeRunner{
+		results: map[string]fakeResult{
+			"gws calendar events list": {stdout: emptyEvents},
+		},
+	}
+	cal := source.NewCalendar(runner)
+	data, err := cal.Fetch(t.Context(), 8*time.Hour)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if _, ok := result["events"]; !ok {
+		t.Error("missing 'events' key even with empty items")
+	}
+}
+
+func TestCalendar_Fetch_WithFixture(t *testing.T) {
+	fixture := loadFixture(t, "gws_calendar_events.json")
+	runner := &fakeRunner{
+		results: map[string]fakeResult{
+			"gws calendar events list": {stdout: fixture},
+		},
+	}
+	cal := source.NewCalendar(runner)
+	data, err := cal.Fetch(t.Context(), 8*time.Hour)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if _, ok := result["events"]; !ok {
+		t.Error("missing 'events' key in output")
+	}
+}
+
 func TestCalendar_Fetch(t *testing.T) {
 	eventsJSON := `{"items":[{"summary":"Standup","start":{"dateTime":"2026-03-29T09:00:00Z"}}]}`
 	runner := &fakeRunner{

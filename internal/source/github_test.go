@@ -41,14 +41,13 @@ func TestGitHub_CheckAuth_Failure(t *testing.T) {
 }
 
 func TestGitHub_Fetch(t *testing.T) {
-	prs := `[{"number":1,"title":"fix bug"}]`
-	issues := `[{"number":2,"title":"add feature"}]`
+	fixture := loadFixture(t, "gh_search_prs.json")
 	runner := &fakeRunner{
 		results: map[string]fakeResult{
-			"gh search prs --review-requested=@me": {stdout: prs},
-			"gh search prs --author=@me":           {stdout: prs},
-			"gh search issues --assignee=@me":      {stdout: issues},
-			"gh search prs --commenter=@me":        {stdout: prs},
+			"gh search prs --review-requested=@me": {stdout: fixture},
+			"gh search prs --author=@me":           {stdout: fixture},
+			"gh search issues --assignee=@me":      {stdout: fixture},
+			"gh search prs --commenter=@me":        {stdout: fixture},
 		},
 	}
 	gh := source.NewGitHub(runner)
@@ -77,6 +76,29 @@ func TestGitHub_RefreshAuth(t *testing.T) {
 	gh := source.NewGitHub(runner)
 	if err := gh.RefreshAuth(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGitHub_Fetch_MultipleSubQueryFailures(t *testing.T) {
+	runner := &fakeRunner{
+		results: map[string]fakeResult{
+			"gh search prs --review-requested=@me": {err: "rate limit exceeded"},
+			"gh search prs --author=@me":           {err: "server error"},
+			"gh search issues --assignee=@me":      {err: "timeout"},
+			"gh search prs --commenter=@me":        {err: "connection reset"},
+		},
+	}
+	gh := source.NewGitHub(runner)
+	_, err := gh.Fetch(t.Context(), 8*time.Hour)
+	if err == nil {
+		t.Fatal("expected error when all sub-queries fail")
+	}
+	// errors.Join produces a multi-error; verify multiple failures are captured
+	errMsg := err.Error()
+	for _, key := range []string{"review_requests", "authored_prs", "assigned_issues", "commented_prs"} {
+		if !strings.Contains(errMsg, key) {
+			t.Errorf("error should mention %q, got: %v", key, err)
+		}
 	}
 }
 
