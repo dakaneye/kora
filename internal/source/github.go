@@ -28,6 +28,7 @@ func NewGitHub(runner exec.Runner) *GitHub {
 	}}
 }
 
+// Fetch retrieves PRs, issues, and review requests from GitHub.
 func (g *GitHub) Fetch(ctx context.Context, since time.Duration) (json.RawMessage, error) {
 	cutoff := time.Now().Add(-since).Format("2006-01-02")
 	jsonFields := "number,title,url,state,updatedAt,repository,author,labels,createdAt"

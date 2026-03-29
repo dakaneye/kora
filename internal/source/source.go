@@ -1,3 +1,4 @@
+// Package source defines the Source interface and orchestrates parallel data fetching.
 package source
 
 import (
@@ -19,18 +20,18 @@ type Source interface {
 
 // Result is the top-level output envelope.
 type Result struct {
+	Sources   map[string]json.RawMessage `json:"sources"`
 	FetchedAt string                     `json:"fetched_at"`
 	Since     string                     `json:"since"`
-	Sources   map[string]json.RawMessage `json:"sources"`
 }
 
 // RunError collects per-source errors.
 type RunError struct {
-	Errors []SourceError
+	Errors []FetchError
 }
 
-// SourceError describes a failure in a single source.
-type SourceError struct {
+// FetchError describes a failure in a single source.
+type FetchError struct {
 	Source string `json:"source"`
 	Phase  string `json:"phase"`
 	Err    string `json:"error"`
@@ -78,7 +79,7 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 		if len(stillFailed) > 0 {
 			runErr := &RunError{}
 			for _, s := range stillFailed {
-				runErr.Errors = append(runErr.Errors, SourceError{
+				runErr.Errors = append(runErr.Errors, FetchError{
 					Source: s.Name(),
 					Phase:  "auth",
 					Err:    "authentication failed after refresh attempt",
@@ -90,7 +91,7 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 
 	// Phase 4: Fetch all in parallel
 	var mu sync.Mutex
-	var fetchErrors []SourceError
+	var fetchErrors []FetchError
 
 	var wg sync.WaitGroup
 	for _, s := range sources {
@@ -101,7 +102,7 @@ func Run(ctx context.Context, sources []Source, since time.Duration) (Result, er
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				fetchErrors = append(fetchErrors, SourceError{
+				fetchErrors = append(fetchErrors, FetchError{
 					Source: s.Name(),
 					Phase:  "fetch",
 					Err:    err.Error(),

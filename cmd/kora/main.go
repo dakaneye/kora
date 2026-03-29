@@ -1,3 +1,4 @@
+// Package main is the entry point for the kora CLI.
 package main
 
 import (
@@ -21,19 +22,23 @@ var (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	sinceStr := flag.String("since", "16h", "time window to look back (e.g. 8h, 7d)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("kora %s (%s) built %s\n", version, commit, date)
-		os.Exit(0)
+		return 0
 	}
 
 	since, err := parseSince(*sinceStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid --since value %q: %v\n", *sinceStr, err)
-		os.Exit(1)
+		return 1
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -49,17 +54,22 @@ func main() {
 	result, err := source.Run(ctx, sources, since)
 	if err != nil {
 		errOutput := map[string]any{"errors": err.Error()}
-		errJSON, _ := json.Marshal(errOutput)
+		errJSON, marshalErr := json.Marshal(errOutput)
+		if marshalErr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
 		fmt.Fprintln(os.Stderr, string(errJSON))
-		os.Exit(1)
+		return 1
 	}
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(result); err != nil {
 		fmt.Fprintf(os.Stderr, "encoding output: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // parseSince parses a duration string, supporting "d" suffix for days

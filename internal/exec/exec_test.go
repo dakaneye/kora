@@ -45,7 +45,7 @@ func TestRun_ContextCancellation(t *testing.T) {
 	cancel()
 	_, err := exec.Run(ctx, "sleep", "10")
 	if err == nil {
-		t.Fatal("expected error for cancelled context")
+		t.Fatal("expected error for canceled context")
 	}
 }
 

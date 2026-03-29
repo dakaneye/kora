@@ -12,11 +12,11 @@ import (
 )
 
 type mockSource struct {
-	name       string
 	authErr    error
 	refreshErr error
-	fetchData  json.RawMessage
 	fetchErr   error
+	name       string
+	fetchData  json.RawMessage
 	authDelay  time.Duration
 }
 
@@ -136,7 +136,7 @@ func TestRun_EmptySources(t *testing.T) {
 
 func TestRunError_Error(t *testing.T) {
 	runErr := &source.RunError{
-		Errors: []source.SourceError{
+		Errors: []source.FetchError{
 			{Source: "github", Phase: "fetch", Err: "api timeout"},
 			{Source: "linear", Phase: "auth", Err: "token expired"},
 		},
@@ -188,11 +188,11 @@ func TestRun_MultipleFetchFailures(t *testing.T) {
 
 func TestRun_AuthLifecycle_AllSources(t *testing.T) {
 	tests := []struct {
-		name       string
 		authErr    error
 		refreshErr error
-		fetchData  json.RawMessage
 		fetchErr   error
+		name       string
+		fetchData  json.RawMessage
 		wantErr    bool
 	}{
 		{
@@ -247,7 +247,7 @@ func TestRun_ContextCancellationDuringFetch(t *testing.T) {
 	}
 
 	_, err := source.Run(ctx, sources, 8*time.Hour)
-	// With a cancelled context, auth check or fetch should fail.
+	// With a canceled context, auth check or fetch should fail.
 	// We just verify it doesn't hang.
 	if err == nil {
 		// It's acceptable if the mock doesn't check ctx, but the test

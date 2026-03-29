@@ -94,7 +94,7 @@ func TestGmail_Fetch_ContextCancellation(t *testing.T) {
 
 	gm := source.NewGmail(runner)
 	_, err := gm.Fetch(ctx, 8*time.Hour)
-	// With a cancelled context, the semaphore path returns early.
+	// With a canceled context, the semaphore path returns early.
 	// The test verifies no deadlock and that an error is produced.
 	if err == nil {
 		// Acceptable if the mock doesn't propagate ctx, but confirms no hang.

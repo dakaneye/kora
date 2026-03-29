@@ -28,17 +28,21 @@ func NewCalendar(runner exec.Runner) *Calendar {
 	}}
 }
 
+// Fetch retrieves calendar events within the given time window.
 func (c *Calendar) Fetch(ctx context.Context, since time.Duration) (json.RawMessage, error) {
 	now := time.Now().UTC()
 	timeMin := now.Add(-since).Format(time.RFC3339)
 	timeMax := now.Format(time.RFC3339)
-	params, _ := json.Marshal(map[string]any{
+	params, err := json.Marshal(map[string]any{
 		"calendarId":   "primary",
 		"timeMin":      timeMin,
 		"timeMax":      timeMax,
 		"singleEvents": true,
 		"orderBy":      "startTime",
 	})
+	if err != nil {
+		return nil, fmt.Errorf("calendar params marshal: %w", err)
+	}
 
 	result, err := c.runner.Run(ctx, "gws", "calendar", "events", "list", "--params", string(params))
 	if err != nil {
@@ -47,8 +51,8 @@ func (c *Calendar) Fetch(ctx context.Context, since time.Duration) (json.RawMess
 
 	// Wrap raw response under "events" key
 	var raw json.RawMessage
-	if err := json.Unmarshal([]byte(result.Stdout), &raw); err != nil {
-		return nil, fmt.Errorf("calendar parse: %w", err)
+	if unmarshalErr := json.Unmarshal([]byte(result.Stdout), &raw); unmarshalErr != nil {
+		return nil, fmt.Errorf("calendar parse: %w", unmarshalErr)
 	}
 
 	data, err := json.Marshal(map[string]json.RawMessage{"events": raw})

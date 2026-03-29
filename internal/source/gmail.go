@@ -32,10 +32,14 @@ func NewGmail(runner exec.Runner) *Gmail {
 	}}
 }
 
+// Fetch retrieves unread messages within the given time window.
 func (g *Gmail) Fetch(ctx context.Context, since time.Duration) (json.RawMessage, error) {
 	after := time.Now().Add(-since).Format("2006/01/02")
 	query := fmt.Sprintf("is:unread after:%s", after)
-	listParams, _ := json.Marshal(map[string]any{"userId": "me", "q": query, "maxResults": 100})
+	listParams, err := json.Marshal(map[string]any{"userId": "me", "q": query, "maxResults": 100})
+	if err != nil {
+		return nil, fmt.Errorf("gmail list params marshal: %w", err)
+	}
 
 	// Phase 1: List message IDs
 	listResult, err := g.runner.Run(ctx, "gws", "gmail", "users", "messages", "list", "--params", string(listParams))
@@ -48,12 +52,15 @@ func (g *Gmail) Fetch(ctx context.Context, since time.Duration) (json.RawMessage
 			ID string `json:"id"`
 		} `json:"messages"`
 	}
-	if err := json.Unmarshal([]byte(listResult.Stdout), &listResp); err != nil {
-		return nil, fmt.Errorf("gmail parse list: %w", err)
+	if unmarshalErr := json.Unmarshal([]byte(listResult.Stdout), &listResp); unmarshalErr != nil {
+		return nil, fmt.Errorf("gmail parse list: %w", unmarshalErr)
 	}
 
 	if len(listResp.Messages) == 0 {
-		empty, _ := json.Marshal(map[string]any{"messages": []any{}})
+		empty, marshalErr := json.Marshal(map[string]any{"messages": []any{}})
+		if marshalErr != nil {
+			return nil, fmt.Errorf("gmail empty marshal: %w", marshalErr)
+		}
 		return empty, nil
 	}
 
@@ -75,17 +82,23 @@ func (g *Gmail) Fetch(ctx context.Context, since time.Duration) (json.RawMessage
 			}
 			defer func() { <-sem }()
 
-			getParams, _ := json.Marshal(map[string]any{
+			getParams, marshalErr := json.Marshal(map[string]any{
 				"userId":          "me",
 				"id":              msg.ID,
 				"format":          "metadata",
 				"metadataHeaders": []string{"From", "Subject", "Date"},
 			})
-			getResult, err := g.runner.Run(ctx, "gws", "gmail", "users", "messages", "get", "--params", string(getParams))
+			if marshalErr != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("gmail get params marshal %s: %w", msg.ID, marshalErr))
+				mu.Unlock()
+				return
+			}
+			getResult, runErr := g.runner.Run(ctx, "gws", "gmail", "users", "messages", "get", "--params", string(getParams))
 			mu.Lock()
 			defer mu.Unlock()
-			if err != nil {
-				errs = append(errs, fmt.Errorf("gmail get %s: %w", msg.ID, err))
+			if runErr != nil {
+				errs = append(errs, fmt.Errorf("gmail get %s: %w", msg.ID, runErr))
 				return
 			}
 			messages = append(messages, json.RawMessage(getResult.Stdout))
