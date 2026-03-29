@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dakaneye/kora/internal/config"
 	"github.com/dakaneye/kora/internal/source"
 )
 
@@ -41,14 +42,20 @@ func run() int {
 		return 1
 	}
 
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	sources := []source.Source{
-		source.NewGitHub(nil),
+		source.NewGitHub(nil, cfg.GitHub.Orgs, cfg.GitHub.Repos),
 		source.NewGmail(nil),
 		source.NewCalendar(nil),
-		source.NewLinear(nil),
+		source.NewLinear(nil, cfg.Linear.Teams),
 	}
 
 	result, err := source.Run(ctx, sources, since)

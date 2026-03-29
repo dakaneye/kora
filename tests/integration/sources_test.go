@@ -11,7 +11,7 @@ import (
 )
 
 func TestGitHub_Integration(t *testing.T) {
-	gh := source.NewGitHub(nil)
+	gh := source.NewGitHub(nil, nil, nil)
 	if err := gh.CheckAuth(t.Context()); err != nil {
 		t.Skipf("gh auth not configured: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestCalendar_Integration(t *testing.T) {
 }
 
 func TestLinear_Integration(t *testing.T) {
-	lin := source.NewLinear(nil)
+	lin := source.NewLinear(nil, nil)
 	if err := lin.CheckAuth(t.Context()); err != nil {
 		t.Skipf("linear auth not configured: %v", err)
 	}

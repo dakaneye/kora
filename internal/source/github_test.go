@@ -10,7 +10,7 @@ import (
 )
 
 func TestGitHub_Name(t *testing.T) {
-	gh := source.NewGitHub(nil)
+	gh := source.NewGitHub(nil, nil, nil)
 	if gh.Name() != "github" {
 		t.Errorf("name = %q, want %q", gh.Name(), "github")
 	}
@@ -22,7 +22,7 @@ func TestGitHub_CheckAuth_Success(t *testing.T) {
 			"gh auth status": {stdout: "Logged in to github.com"},
 		},
 	}
-	gh := source.NewGitHub(runner)
+	gh := source.NewGitHub(runner, nil, nil)
 	if err := gh.CheckAuth(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestGitHub_CheckAuth_Failure(t *testing.T) {
 			"gh auth status": {err: "not logged in"},
 		},
 	}
-	gh := source.NewGitHub(runner)
+	gh := source.NewGitHub(runner, nil, nil)
 	if err := gh.CheckAuth(t.Context()); err == nil {
 		t.Fatal("expected error for failed auth")
 	}
@@ -50,7 +50,7 @@ func TestGitHub_Fetch(t *testing.T) {
 			"gh search prs --commenter=@me":        {stdout: fixture},
 		},
 	}
-	gh := source.NewGitHub(runner)
+	gh := source.NewGitHub(runner, nil, nil)
 	data, err := gh.Fetch(t.Context(), 8*time.Hour)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -73,7 +73,7 @@ func TestGitHub_RefreshAuth(t *testing.T) {
 			"gh auth refresh": {stdout: ""},
 		},
 	}
-	gh := source.NewGitHub(runner)
+	gh := source.NewGitHub(runner, nil, nil)
 	if err := gh.RefreshAuth(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestGitHub_Fetch_MultipleSubQueryFailures(t *testing.T) {
 			"gh search prs --commenter=@me":        {err: "connection reset"},
 		},
 	}
-	gh := source.NewGitHub(runner)
+	gh := source.NewGitHub(runner, nil, nil)
 	_, err := gh.Fetch(t.Context(), 8*time.Hour)
 	if err == nil {
 		t.Fatal("expected error when all sub-queries fail")
@@ -113,7 +113,7 @@ func TestGitHub_Fetch_PartialSubQueryFailure(t *testing.T) {
 			"gh search prs --commenter=@me":        {err: "rate limit exceeded"},
 		},
 	}
-	gh := source.NewGitHub(runner)
+	gh := source.NewGitHub(runner, nil, nil)
 	_, err := gh.Fetch(t.Context(), 8*time.Hour)
 	if err == nil {
 		t.Fatal("expected error when one sub-query fails")

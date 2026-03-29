@@ -10,7 +10,7 @@ import (
 )
 
 func TestLinear_Name(t *testing.T) {
-	lin := source.NewLinear(nil)
+	lin := source.NewLinear(nil, nil)
 	if lin.Name() != "linear" {
 		t.Errorf("name = %q, want %q", lin.Name(), "linear")
 	}
@@ -22,7 +22,7 @@ func TestLinear_CheckAuth_Success(t *testing.T) {
 			"linear auth whoami": {stdout: "sam@netboxlabs.com"},
 		},
 	}
-	lin := source.NewLinear(runner)
+	lin := source.NewLinear(runner, nil)
 	if err := lin.CheckAuth(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestLinear_CheckAuth_Failure(t *testing.T) {
 			"linear auth whoami": {err: "not authenticated"},
 		},
 	}
-	lin := source.NewLinear(runner)
+	lin := source.NewLinear(runner, nil)
 	if err := lin.CheckAuth(t.Context()); err == nil {
 		t.Fatal("expected error for failed auth")
 	}
@@ -46,7 +46,7 @@ func TestLinear_RefreshAuth(t *testing.T) {
 			"linear auth login": {stdout: ""},
 		},
 	}
-	lin := source.NewLinear(runner)
+	lin := source.NewLinear(runner, nil)
 	if err := lin.RefreshAuth(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestLinear_Fetch_PartialSubQueryFailure(t *testing.T) {
 			"linear api": {err: "graphql error: rate limited"},
 		},
 	}
-	lin := source.NewLinear(runner)
+	lin := source.NewLinear(runner, nil)
 	_, err := lin.Fetch(t.Context(), 7*24*time.Hour)
 	if err == nil {
 		t.Fatal("expected error when sub-queries fail")
@@ -80,7 +80,7 @@ func TestLinear_Fetch(t *testing.T) {
 			"linear api": {stdout: apiResponse},
 		},
 	}
-	lin := source.NewLinear(runner)
+	lin := source.NewLinear(runner, nil)
 	data, err := lin.Fetch(t.Context(), 7*24*time.Hour)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
