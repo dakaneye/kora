@@ -10,7 +10,7 @@ Kora is a single-purpose CLI tool that gathers work activity from multiple data 
 |----------|--------|
 | Interface | CLI only, no MCP, no subcommands -- just `kora` |
 | Output | Raw passthrough from each source's CLI tool, Kora adds metadata only where useful and not duplicative |
-| Sources | GitHub (`gh`), Gmail (`gws`), Calendar (`gws`), Linear (`linear-cli` + GraphQL API) |
+| Sources | GitHub (`gh`), Gmail (`gws`), Calendar (`gws`), Linear ([schpet/linear-cli](https://github.com/schpet/linear-cli) + `linear api` for GraphQL) |
 | Parallelism | All sources in parallel, sub-parallelism within each source |
 | Time window | `--since` duration only (e.g. `--since 8h`, `--since 7d`) |
 | Errors | Exit non-zero if any enabled source fails |
@@ -29,7 +29,7 @@ internal/source/source.go     -- Source interface, Run function
 internal/source/github.go     -- GitHub via gh CLI
 internal/source/gmail.go      -- Gmail via gws CLI
 internal/source/calendar.go   -- Calendar via gws CLI
-internal/source/linear.go     -- Linear via linear-cli + GraphQL API
+internal/source/linear.go     -- Linear via schpet/linear-cli + `linear api` for GraphQL
 internal/exec/exec.go         -- subprocess helper (run cmd, capture stdout/stderr)
 ```
 
@@ -99,7 +99,7 @@ Each source is responsible for translating the `since` duration into whatever fo
 
 **Output:** raw events array.
 
-### Linear (hybrid: `linear-cli` + GraphQL API)
+### Linear (hybrid: [schpet/linear-cli](https://github.com/schpet/linear-cli) + `linear api` for GraphQL)
 
 **Auth check:** `linear auth whoami`
 **Auth refresh:** `linear auth login`
