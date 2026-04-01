@@ -27,7 +27,6 @@ jobs:
         with:
           install-only: true
 
-      - uses: dakaneye/hookshot/release-pilot@1b43157bc205516bdb653ebeccdb7ef7079bb19d
+      - uses: dakaneye/hookshot/release-pilot@5c330982fa74bb2d99f51cd3e8217362d9ebd1d6
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          draft: "true"
